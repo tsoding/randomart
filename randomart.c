@@ -10,6 +10,10 @@
 #define ARENA_IMPLEMENTATION
 #include "arena.h"
 
+#include <pthread.h>
+#define N_THREADS 6
+// #define THREADS_ENABLE
+
 #define WIDTH 800
 #define HEIGHT 800
 
@@ -387,6 +391,59 @@ bool render_pixels(Node *f)
     return true;
 }
 
+typedef struct {
+    size_t i;
+    Node* f;
+    bool started;
+} render_thread_params;
+
+void* thread_render_pixels(void *raw_args) {
+    render_thread_params *params = (render_thread_params*)raw_args;
+    render_thread_params args = *params;
+    params->started = true;
+
+    Arena arena = {0};
+    for (size_t y = args.i; y < HEIGHT; y += N_THREADS) {
+        float ny = (float)y/HEIGHT*2.0f - 1;
+        for (size_t x = 0; x < WIDTH; ++x) {
+            float nx = (float)x/WIDTH*2.0f - 1;
+            Color c;
+            if (!eval_func(args.f, &arena, nx, ny, &c)) return (void*)2;
+            arena_reset(&arena);
+            size_t index = y*WIDTH + x;
+            pixels[index].r = (c.r + 1)/2*255;
+            pixels[index].g = (c.g + 1)/2*255;
+            pixels[index].b = (c.b + 1)/2*255;
+            pixels[index].a = 255;
+        }
+    }
+
+    return (void*)1;
+}
+
+bool render_pixels_threaded(Node* f) {
+    pthread_t *threads = malloc(sizeof(pthread_t)*N_THREADS);
+    char status = 0;
+    volatile render_thread_params param;
+    param.f = f;
+    for (size_t i = 0; i < N_THREADS; i++) {
+        param.i = i;
+        param.started = false;
+        if (pthread_create(&threads[i], NULL, &thread_render_pixels, &param) != 0) {
+            nob_log(ERROR, "Failed to spawn thread");
+            exit(1);
+        }
+        while (!param.started);
+    }
+    for (size_t i = 0; i < N_THREADS; i++) {
+        int result;
+        pthread_join(threads[i], (void*)&result);
+        if (result > status)
+            status = result;
+    }
+    return status == 1;
+}
+
 #define node_print_ln(node) (node_print(node), printf("\n"))
 
 typedef struct {
@@ -509,7 +566,7 @@ size_t arch[] = {2, 28, 28, 9, 3};
 
 int main()
 {
-    srand(time(0));
+    srand(2);
     Grammar grammar = {0};
     Grammar_Branches branches = {0};
     int e = 0;
@@ -576,7 +633,13 @@ int main()
     //             node_mod(node_x(), node_y()),
     //             node_mod(node_x(), node_y()))));
 
+#ifdef THREADS_ENABLE
+    nob_log(INFO, "Using threaded\n");
+    bool ok = render_pixels_threaded(f);
+#else
+    nob_log(INFO, "Using non-threaded\n");
     bool ok = render_pixels(f);
+#endif
 
     if (!ok) return 1;
     const char *output_path = "output.png";
