@@ -37,7 +37,10 @@ int threads_create(threads_thread *thread, void *(*target)(void *), void *args) 
 int threads_join(threads_thread *thread, void **result) {
     void *value;
 #ifdef _WIN32
-    if (!GetExitCodeThread(thread->thread, &value))
+    if (
+        WaitForSingleObject(thread->thread, INFINITE) ||
+        !GetExitCodeThread(thread->thread, &value)
+    )
         return 1;
 #else
     if (pthread_join(thread->thread, &value))

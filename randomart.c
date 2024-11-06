@@ -398,22 +398,19 @@ bool render_pixels(Node *f)
 typedef struct {
     size_t i;
     Node* f;
-    bool started;
+    bool ok;
 } render_thread_params;
 
 #ifdef THREADS_ENABLE
 void* thread_render_pixels(void *raw_args) {
-    render_thread_params *params = (render_thread_params*)raw_args;
-    render_thread_params args = *params;
-    params->started = true;
-
+    render_thread_params *args = (render_thread_params*)raw_args;
     Arena arena = {0};
-    for (size_t y = args.i; y < HEIGHT; y += N_THREADS) {
+    for (size_t y = args->i; y < HEIGHT; y += N_THREADS) {
         float ny = (float)y/HEIGHT*2.0f - 1;
         for (size_t x = 0; x < WIDTH; ++x) {
             float nx = (float)x/WIDTH*2.0f - 1;
             Color c;
-            if (!eval_func(args.f, &arena, nx, ny, &c)) return (void*)2;
+            if (!eval_func(args->f, &arena, nx, ny, &c)) return args->ok=false, NULL;
             arena_reset(&arena);
             size_t index = y*WIDTH + x;
             pixels[index].r = (c.r + 1)/2*255;
@@ -422,31 +419,42 @@ void* thread_render_pixels(void *raw_args) {
             pixels[index].a = 255;
         }
     }
-
-    return (void*)1;
+    return args->ok=true, NULL;
 }
 
 bool render_pixels_threaded(Node* f) {
-    threads_thread *threads = malloc(sizeof(threads_thread)*N_THREADS);
-    char status = 0;
-    volatile render_thread_params param;
-    param.f = f;
+    bool result = true;
+    // TODO: Maybe extract threads into params
+    threads_thread *threads = (threads_thread*)malloc(sizeof(threads_thread)*N_THREADS);
+    render_thread_params volatile *params = (render_thread_params*)malloc(sizeof(render_thread_params)*N_THREADS);
+    
     for (size_t i = 0; i < N_THREADS; i++) {
-        param.i = i;
-        param.started = false;
-        if (threads_create(&threads[i], thread_render_pixels, (void*)&param)) {
+        params[i].f = f;
+        params[i].ok = true;
+        params[i].i = i;
+        if (threads_create(&threads[i], thread_render_pixels, &params[i])) {
             nob_log(ERROR, "Failed to spawn thread");
             exit(1);
         }
-        while (!param.started);
     }
+    
+    bool bad = false;
     for (size_t i = 0; i < N_THREADS; i++) {
-        ssize_t result;
-        threads_join(&threads[i], (void*)&result);
-        if (result > status)
-            status = result;
+        if (threads_join(&threads[i], NULL))
+            bad = true;
     }
-    return status == 1;
+    if (bad)
+        return_defer(false);
+    
+    for (size_t i = 0; i < N_THREADS; i++) {
+        if (!params[i].ok)
+            return_defer(false);
+    }
+
+defer:
+    free(threads);
+    free(params);
+    return result;
 }
 
 #define render_pixels_actual render_pixels_threaded
