@@ -107,6 +107,7 @@ Node *node_number_loc(const char *file, int line, Arena *arena, float number)
     return node;
 }
 #define node_number(arena, number) node_number_loc(__FILE__, __LINE__, arena, number)
+#define node_number_inline(value) (Node){ .kind = NK_NUMBER, .file = __FILE__, .line = __LINE__, .as.number = (value) }
 
 Node *node_rule_loc(const char *file, int line, Arena *arena, int rule)
 {
@@ -123,6 +124,7 @@ Node *node_boolean_loc(const char *file, int line, Arena *arena, bool boolean)
     return node;
 }
 #define node_boolean(arena, boolean) node_boolean_loc(__FILE__, __LINE__, arena, boolean)
+#define node_boolean_inline(value) (Node){ .kind = NK_BOOLEAN, .file = __FILE__, .line = __LINE__, .as.boolean = (value) }
 
 #define node_x(arena)      node_loc(__FILE__, __LINE__, arena, NK_X)
 #define node_y(arena)      node_loc(__FILE__, __LINE__, arena, NK_Y)
@@ -505,7 +507,8 @@ Node *gen_rule(Grammar grammar, Arena *arena, size_t rule, int depth)
     return node;
 }
 
-bool get_number(Node *node, float *result) {
+bool get_number(Node *node, float *result) 
+{
     if (node->kind != NK_NUMBER)
         return false;
     if (result) 
@@ -513,7 +516,8 @@ bool get_number(Node *node, float *result) {
     return true;
 }
 
-bool get_boolean(Node *node, bool *result) {
+bool get_boolean(Node *node, bool *result) 
+{
     if (node->kind != NK_BOOLEAN)
         return false;
     if (result) 
@@ -521,11 +525,11 @@ bool get_boolean(Node *node, bool *result) {
     return true;
 }
 
-#define node_number_inline(value) (Node){ .kind = NK_NUMBER, .file = __FILE__, .line = __LINE__, .as.number = (value) }
-#define node_boolean_inline(value) (Node){ .kind = NK_BOOLEAN, .file = __FILE__, .line = __LINE__, .as.boolean = (value) }
+#define OPTIMIZE_MAX_PASSES 100
 
 // TODO: Probably try to free the discarded nodes
-bool optimize_expr(Arena *arena, Node *expr) {
+bool optimize_expr(Arena *arena, Node *expr) 
+{
     switch (expr->kind) {
     case NK_X:
     case NK_Y:
@@ -589,8 +593,13 @@ bool optimize_expr(Arena *arena, Node *expr) {
     }
 }
 
-void optimize_func(Arena *arena, Node *func) {
-    while (optimize_expr(arena, func));
+bool optimize_func(Arena *arena, Node *func) 
+{
+    for (size_t i = 0; i < OPTIMIZE_MAX_PASSES; i++) {
+        if (!optimize_expr(arena, func))
+            return true;
+    }
+    return false;
 }
 
 size_t arch[] = {2, 28, 28, 9, 3};
@@ -649,7 +658,9 @@ int main()
         fprintf(stderr, "ERROR: the crappy generation process could not terminate\n");
         return 1;
     }
-    optimize_func(&static_arena, f);
+    if (!optimize_func(&static_arena, f)) {
+        nob_log(WARNING, "Exceeded maximum optimization passes");
+    }
     node_print_ln(f);
 
     // bool ok = render_pixels(node_triple(node_x(), node_x(), node_x()));
