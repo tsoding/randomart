@@ -10,9 +10,13 @@
 #define ARENA_IMPLEMENTATION
 #include "arena.h"
 
-#include <pthread.h>
 #define N_THREADS 6
 // #define THREADS_ENABLE
+
+#ifdef THREADS_ENABLE
+#define THREADS_IMPLEMENTATION
+#include "threads.h"
+#endif
 
 #define WIDTH 800
 #define HEIGHT 800
@@ -397,6 +401,7 @@ typedef struct {
     bool started;
 } render_thread_params;
 
+#ifdef THREADS_ENABLE
 void* thread_render_pixels(void *raw_args) {
     render_thread_params *params = (render_thread_params*)raw_args;
     render_thread_params args = *params;
@@ -422,27 +427,35 @@ void* thread_render_pixels(void *raw_args) {
 }
 
 bool render_pixels_threaded(Node* f) {
-    pthread_t *threads = malloc(sizeof(pthread_t)*N_THREADS);
+    threads_thread *threads = malloc(sizeof(threads_thread)*N_THREADS);
     char status = 0;
     volatile render_thread_params param;
     param.f = f;
     for (size_t i = 0; i < N_THREADS; i++) {
         param.i = i;
         param.started = false;
-        if (pthread_create(&threads[i], NULL, &thread_render_pixels, &param) != 0) {
+        if (threads_create(&threads[i], thread_render_pixels, (void*)&param)) {
             nob_log(ERROR, "Failed to spawn thread");
             exit(1);
         }
         while (!param.started);
     }
     for (size_t i = 0; i < N_THREADS; i++) {
-        int result;
-        pthread_join(threads[i], (void*)&result);
+        ssize_t result;
+        threads_join(&threads[i], (void*)&result);
         if (result > status)
             status = result;
     }
     return status == 1;
 }
+
+#define render_pixels_actual render_pixels_threaded
+
+#else
+
+#define render_pixels_actual render_pixels
+
+#endif
 
 #define node_print_ln(node) (node_print(node), printf("\n"))
 
@@ -566,7 +579,7 @@ size_t arch[] = {2, 28, 28, 9, 3};
 
 int main()
 {
-    srand(2);
+    srand(time(0));
     Grammar grammar = {0};
     Grammar_Branches branches = {0};
     int e = 0;
@@ -633,13 +646,7 @@ int main()
     //             node_mod(node_x(), node_y()),
     //             node_mod(node_x(), node_y()))));
 
-#ifdef THREADS_ENABLE
-    nob_log(INFO, "Using threaded\n");
-    bool ok = render_pixels_threaded(f);
-#else
-    nob_log(INFO, "Using non-threaded\n");
-    bool ok = render_pixels(f);
-#endif
+    bool ok = render_pixels_actual(f);
 
     if (!ok) return 1;
     const char *output_path = "output.png";
