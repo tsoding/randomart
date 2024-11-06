@@ -10,10 +10,9 @@
 #define ARENA_IMPLEMENTATION
 #include "arena.h"
 
-#define N_THREADS 6
-// #define THREADS_ENABLE
+#define N_THREADS 0
 
-#ifdef THREADS_ENABLE
+#if N_THREADS > 0
 #define THREADS_IMPLEMENTATION
 #include "threads.h"
 #endif
@@ -395,13 +394,13 @@ bool render_pixels(Node *f)
     return true;
 }
 
+#if N_THREADS > 0
 typedef struct {
     size_t i;
     Node* f;
     bool ok;
 } render_thread_params;
 
-#ifdef THREADS_ENABLE
 void* thread_render_pixels(void *raw_args) {
     render_thread_params *args = (render_thread_params*)raw_args;
     Arena arena = {0};
@@ -426,7 +425,7 @@ bool render_pixels_threaded(Node* f) {
     bool result = true;
     // TODO: Maybe extract threads into params
     threads_thread *threads = (threads_thread*)malloc(sizeof(threads_thread)*N_THREADS);
-    render_thread_params volatile *params = (render_thread_params*)malloc(sizeof(render_thread_params)*N_THREADS);
+    render_thread_params *params = (render_thread_params*)malloc(sizeof(render_thread_params)*N_THREADS);
     
     for (size_t i = 0; i < N_THREADS; i++) {
         params[i].f = f;
