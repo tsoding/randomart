@@ -505,6 +505,94 @@ Node *gen_rule(Grammar grammar, Arena *arena, size_t rule, int depth)
     return node;
 }
 
+bool get_number(Node *node, float *result) {
+    if (node->kind != NK_NUMBER)
+        return false;
+    if (result) 
+        *result = node->as.number;
+    return true;
+}
+
+bool get_boolean(Node *node, bool *result) {
+    if (node->kind != NK_BOOLEAN)
+        return false;
+    if (result) 
+        *result = node->as.boolean;
+    return true;
+}
+
+#define node_number_inline(value) (Node){ .kind = NK_NUMBER, .file = __FILE__, .line = __LINE__, .as.number = (value) }
+#define node_boolean_inline(value) (Node){ .kind = NK_BOOLEAN, .file = __FILE__, .line = __LINE__, .as.boolean = (value) }
+
+// TODO: Probably try to free the discarded nodes
+bool optimize_expr(Arena *arena, Node *expr) {
+    switch (expr->kind) {
+    case NK_X:
+    case NK_Y:
+    case NK_BOOLEAN:
+    case NK_NUMBER: return false;
+    case NK_RANDOM:
+    case NK_RULE: {
+        printf("%s:%d: ERROR: cannot optimize a node that valid only for grammar definitions\n", expr->file, expr->line);
+        return false;
+    }
+    case NK_ADD: {
+        bool res = optimize_expr(arena, expr->as.binop.lhs) || optimize_expr(arena, expr->as.binop.rhs);
+        float lhs, rhs;
+        if (!(get_number(expr->as.binop.lhs, &lhs) && get_number(expr->as.binop.rhs, &rhs)))
+            return res;
+        *expr = node_number_inline(lhs+rhs);
+        return true;
+    }
+    case NK_MULT: {
+        bool res = optimize_expr(arena, expr->as.binop.lhs) || optimize_expr(arena, expr->as.binop.rhs);
+        float lhs, rhs;
+        if (!(get_number(expr->as.binop.lhs, &lhs) && get_number(expr->as.binop.rhs, &rhs)))
+            return res;
+        *expr = node_number_inline(lhs*rhs);
+        return true;
+    }
+    case NK_MOD: {
+        bool res = optimize_expr(arena, expr->as.binop.lhs) || optimize_expr(arena, expr->as.binop.rhs);
+        float lhs, rhs;
+        if (!(get_number(expr->as.binop.lhs, &lhs) && get_number(expr->as.binop.rhs, &rhs)))
+            return res;
+        *expr = node_number_inline(fmodf(lhs,rhs));
+        return true;
+    }
+    case NK_GT: {
+        bool res = optimize_expr(arena, expr->as.binop.lhs) || optimize_expr(arena, expr->as.binop.rhs);
+        float lhs, rhs;
+        if (!(get_number(expr->as.binop.lhs, &lhs) && get_number(expr->as.binop.rhs, &rhs)))
+            return res;
+        *expr = node_boolean_inline(lhs>rhs);
+        return true;
+    }
+    case NK_TRIPLE: {
+        return 
+            optimize_expr(arena, expr->as.triple.first) ||
+            optimize_expr(arena, expr->as.triple.second) ||
+            optimize_expr(arena, expr->as.triple.third)
+        ;
+    }
+    case NK_IF: {
+        bool res = optimize_expr(arena, expr->as.iff.then) || optimize_expr(arena, expr->as.iff.elze) || optimize_expr(arena, expr->as.iff.cond);
+        float then, elze;
+        bool cond;
+        if (!(get_number(expr->as.iff.then, &then) && get_number(expr->as.iff.elze, &elze) && get_boolean(expr->as.iff.cond, &cond)))
+            return res;
+        *expr = cond ? node_number_inline(then) : node_number_inline(elze);
+        return true;
+    }
+    case COUNT_NK:
+    default: UNREACHABLE("optimize_expr");
+    }
+}
+
+void optimize_func(Arena *arena, Node *func) {
+    while (optimize_expr(arena, func));
+}
+
 size_t arch[] = {2, 28, 28, 9, 3};
 
 int main()
@@ -561,6 +649,7 @@ int main()
         fprintf(stderr, "ERROR: the crappy generation process could not terminate\n");
         return 1;
     }
+    optimize_func(&static_arena, f);
     node_print_ln(f);
 
     // bool ok = render_pixels(node_triple(node_x(), node_x(), node_x()));
