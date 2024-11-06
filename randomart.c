@@ -10,6 +10,10 @@
 #define ARENA_IMPLEMENTATION
 #include "arena.h"
 
+#ifdef _WIN32
+#define static_assert _Static_assert
+#endif
+
 #define WIDTH 800
 #define HEIGHT 800
 
