@@ -397,6 +397,7 @@ bool render_pixels(Node *f)
 #if N_THREADS > 0
 typedef struct {
     size_t i;
+    threads_thread thread;
     Node* f;
     bool ok;
 } render_thread_params;
@@ -423,23 +424,23 @@ void* thread_render_pixels(void *raw_args) {
 
 bool render_pixels_threaded(Node* f) {
     bool result = true;
-    // TODO: Maybe extract threads into params
-    threads_thread *threads = (threads_thread*)malloc(sizeof(threads_thread)*N_THREADS);
     render_thread_params *params = (render_thread_params*)malloc(sizeof(render_thread_params)*N_THREADS);
-    
+
     for (size_t i = 0; i < N_THREADS; i++) {
         params[i].f = f;
         params[i].ok = true;
         params[i].i = i;
-        if (threads_create(&threads[i], thread_render_pixels, &params[i])) {
+        if (threads_create(&params[i].thread, thread_render_pixels, &params[i])) {
             nob_log(ERROR, "Failed to spawn thread");
             exit(1);
         }
     }
+
+    nob_log(INFO, "Threads started");
     
     bool bad = false;
     for (size_t i = 0; i < N_THREADS; i++) {
-        if (threads_join(&threads[i], NULL))
+        if (threads_join(&params[i].thread, NULL))
             bad = true;
     }
     if (bad)
@@ -451,7 +452,6 @@ bool render_pixels_threaded(Node* f) {
     }
 
 defer:
-    free(threads);
     free(params);
     return result;
 }
