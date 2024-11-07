@@ -533,7 +533,10 @@ bool optimize_expr(Arena *arena, Node *expr)
     case NK_X:
     case NK_Y:
     case NK_BOOLEAN:
-    case NK_NUMBER: return false;
+    case NK_NUMBER:
+    case NK_RANDOM:
+    case NK_RULE:
+        return false;
     case NK_ADD: {
         bool res = optimize_expr(arena, expr->as.binop.lhs) || optimize_expr(arena, expr->as.binop.rhs);
         float lhs, rhs;
@@ -582,8 +585,9 @@ bool optimize_expr(Arena *arena, Node *expr)
         *expr = cond ? node_number_inline(then) : node_number_inline(elze);
         return true;
     }
+    case COUNT_NK:
     default:
-        return false;
+        UNREACHABLE("optimize_expr");
     }
 }
 
