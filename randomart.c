@@ -10,7 +10,7 @@
 #define ARENA_IMPLEMENTATION
 #include "arena.h"
 
-#ifdef _WIN32
+#ifndef static_assert
 #define static_assert _Static_assert
 #endif
 
