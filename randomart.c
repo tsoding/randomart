@@ -525,10 +525,9 @@ bool get_boolean(Node *node, bool *result)
     return true;
 }
 
-#define OPTIMIZE_MAX_PASSES 100
-
-bool optimize_expr(Arena *arena, Node *expr) 
+void optimize_expr(Node *expr) 
 {
+    float lhs, rhs;
     switch (expr->kind) {
     case NK_X:
     case NK_Y:
@@ -536,72 +535,55 @@ bool optimize_expr(Arena *arena, Node *expr)
     case NK_NUMBER:
     case NK_RANDOM:
     case NK_RULE:
-        return false;
+        break;
     case NK_ADD: {
-        bool res = optimize_expr(arena, expr->as.binop.lhs) || optimize_expr(arena, expr->as.binop.rhs);
-        float lhs, rhs;
-        if (!(get_number(expr->as.binop.lhs, &lhs) && get_number(expr->as.binop.rhs, &rhs)))
-            return res;
-        *expr = node_number_inline(lhs+rhs);
-        return true;
-    }
+        optimize_expr(expr->as.binop.lhs);
+        optimize_expr(expr->as.binop.rhs);
+        if (get_number(expr->as.binop.lhs, &lhs) && get_number(expr->as.binop.rhs, &rhs))
+            *expr = node_number_inline(lhs+rhs);
+    } break;
     case NK_MULT: {
-        bool res = optimize_expr(arena, expr->as.binop.lhs) || optimize_expr(arena, expr->as.binop.rhs);
-        float lhs, rhs;
-        if (!(get_number(expr->as.binop.lhs, &lhs) && get_number(expr->as.binop.rhs, &rhs)))
-            return res;
-        *expr = node_number_inline(lhs*rhs);
-        return true;
-    }
+        optimize_expr(expr->as.binop.lhs);
+        optimize_expr(expr->as.binop.rhs);
+        if (get_number(expr->as.binop.lhs, &lhs) && get_number(expr->as.binop.rhs, &rhs))
+            *expr = node_number_inline(lhs*rhs);
+    } break;
     case NK_MOD: {
-        bool res = optimize_expr(arena, expr->as.binop.lhs) || optimize_expr(arena, expr->as.binop.rhs);
-        float lhs, rhs;
-        if (!(get_number(expr->as.binop.lhs, &lhs) && get_number(expr->as.binop.rhs, &rhs)))
-            return res;
-        *expr = node_number_inline(fmodf(lhs,rhs));
-        return true;
-    }
+        optimize_expr(expr->as.binop.lhs);
+        optimize_expr(expr->as.binop.rhs);
+        if (get_number(expr->as.binop.lhs, &lhs) && get_number(expr->as.binop.rhs, &rhs))
+            *expr = node_number_inline(fmodf(lhs,rhs));
+    } break;
     case NK_GT: {
-        bool res = optimize_expr(arena, expr->as.binop.lhs) || optimize_expr(arena, expr->as.binop.rhs);
-        float lhs, rhs;
-        if (!(get_number(expr->as.binop.lhs, &lhs) && get_number(expr->as.binop.rhs, &rhs)))
-            return res;
-        *expr = node_boolean_inline(lhs>rhs);
-        return true;
-    }
+        optimize_expr(expr->as.binop.lhs);
+        optimize_expr(expr->as.binop.rhs);
+        bool num_rhs = get_number(expr->as.binop.rhs, &rhs);
+        bool num_lhs = get_number(expr->as.binop.lhs, &lhs);
+        if (num_rhs && num_lhs)
+            *expr = node_boolean_inline(lhs>rhs);
+        // maybe too much of an edge case
+        else if ((expr->as.binop.lhs->kind == NK_X || expr->as.binop.lhs->kind == NK_Y) && num_rhs && rhs >= 1.f)
+            *expr = node_boolean_inline(false);
+        else if ((expr->as.binop.rhs->kind == NK_X || expr->as.binop.rhs->kind == NK_Y) && num_lhs && lhs <= -1.f)
+            *expr = node_boolean_inline(false);
+    } break;
     case NK_TRIPLE: {
-        return 
-            optimize_expr(arena, expr->as.triple.first) ||
-            optimize_expr(arena, expr->as.triple.second) ||
-            optimize_expr(arena, expr->as.triple.third)
-        ;
-    }
+        optimize_expr(expr->as.triple.first);
+        optimize_expr(expr->as.triple.second);
+        optimize_expr(expr->as.triple.third);
+    } break;
     case NK_IF: {
-        bool res = optimize_expr(arena, expr->as.iff.then) || optimize_expr(arena, expr->as.iff.elze) || optimize_expr(arena, expr->as.iff.cond);
-        float then, elze;
+        optimize_expr(expr->as.iff.cond);
+        optimize_expr(expr->as.iff.then);
+        optimize_expr(expr->as.iff.elze);
         bool cond;
-        if (!(get_number(expr->as.iff.then, &then) && get_number(expr->as.iff.elze, &elze) && get_boolean(expr->as.iff.cond, &cond)))
-            return res;
-        *expr = cond ? node_number_inline(then) : node_number_inline(elze);
-        return true;
-    }
+        if (get_boolean(expr->as.iff.cond, &cond))
+            *expr = cond ? *expr->as.iff.then : *expr->as.iff.elze;
+    } break;
     case COUNT_NK:
     default:
         UNREACHABLE("optimize_expr");
     }
-}
-
-bool optimize_func(Arena *arena, Node *func) 
-{
-#if OPTIMIZE_MAX_PASSES <= 0
-    return true;
-#else
-    for (size_t i = 0; i < OPTIMIZE_MAX_PASSES; i++) {
-        if (!optimize_expr(arena, func))
-            return true;
-    }
-    return false;
-#endif
 }
 
 size_t arch[] = {2, 28, 28, 9, 3};
@@ -660,9 +642,7 @@ int main()
         fprintf(stderr, "ERROR: the crappy generation process could not terminate\n");
         return 1;
     }
-    if (!optimize_func(&static_arena, f)) {
-        nob_log(WARNING, "Exceeded maximum optimization passes");
-    }
+    optimize_expr(f);
     node_print_ln(f);
 
     // bool ok = render_pixels(node_triple(node_x(), node_x(), node_x()));
