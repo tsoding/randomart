@@ -527,7 +527,6 @@ bool get_boolean(Node *node, bool *result)
 
 #define OPTIMIZE_MAX_PASSES 100
 
-// TODO: Probably try to free the discarded nodes
 bool optimize_expr(Arena *arena, Node *expr) 
 {
     switch (expr->kind) {
@@ -535,11 +534,6 @@ bool optimize_expr(Arena *arena, Node *expr)
     case NK_Y:
     case NK_BOOLEAN:
     case NK_NUMBER: return false;
-    case NK_RANDOM:
-    case NK_RULE: {
-        printf("%s:%d: ERROR: cannot optimize a node that valid only for grammar definitions\n", expr->file, expr->line);
-        return false;
-    }
     case NK_ADD: {
         bool res = optimize_expr(arena, expr->as.binop.lhs) || optimize_expr(arena, expr->as.binop.rhs);
         float lhs, rhs;
@@ -588,13 +582,16 @@ bool optimize_expr(Arena *arena, Node *expr)
         *expr = cond ? node_number_inline(then) : node_number_inline(elze);
         return true;
     }
-    case COUNT_NK:
-    default: UNREACHABLE("optimize_expr");
+    default:
+        return false;
     }
 }
 
 bool optimize_func(Arena *arena, Node *func) 
 {
+#if OPTIMIZE_MAX_PASSES <= 0
+    return true;
+#endif
     for (size_t i = 0; i < OPTIMIZE_MAX_PASSES; i++) {
         if (!optimize_expr(arena, func))
             return true;
