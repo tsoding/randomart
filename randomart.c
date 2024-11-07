@@ -107,6 +107,7 @@ Node *node_number_loc(const char *file, int line, Arena *arena, float number)
     return node;
 }
 #define node_number(arena, number) node_number_loc(__FILE__, __LINE__, arena, number)
+#define node_number_inline(value) (Node){ .kind = NK_NUMBER, .file = __FILE__, .line = __LINE__, .as.number = (value) }
 
 Node *node_rule_loc(const char *file, int line, Arena *arena, int rule)
 {
@@ -123,6 +124,7 @@ Node *node_boolean_loc(const char *file, int line, Arena *arena, bool boolean)
     return node;
 }
 #define node_boolean(arena, boolean) node_boolean_loc(__FILE__, __LINE__, arena, boolean)
+#define node_boolean_inline(value) (Node){ .kind = NK_BOOLEAN, .file = __FILE__, .line = __LINE__, .as.boolean = (value) }
 
 #define node_x(arena)      node_loc(__FILE__, __LINE__, arena, NK_X)
 #define node_y(arena)      node_loc(__FILE__, __LINE__, arena, NK_Y)
@@ -505,6 +507,85 @@ Node *gen_rule(Grammar grammar, Arena *arena, size_t rule, int depth)
     return node;
 }
 
+bool get_number(Node *node, float *result) 
+{
+    if (node->kind != NK_NUMBER)
+        return false;
+    if (result) 
+        *result = node->as.number;
+    return true;
+}
+
+bool get_boolean(Node *node, bool *result) 
+{
+    if (node->kind != NK_BOOLEAN)
+        return false;
+    if (result) 
+        *result = node->as.boolean;
+    return true;
+}
+
+void optimize_expr(Node *expr) 
+{
+    float lhs, rhs;
+    switch (expr->kind) {
+    case NK_X:
+    case NK_Y:
+    case NK_BOOLEAN:
+    case NK_NUMBER:
+    case NK_RANDOM:
+    case NK_RULE:
+        break;
+    case NK_ADD: {
+        optimize_expr(expr->as.binop.lhs);
+        optimize_expr(expr->as.binop.rhs);
+        if (get_number(expr->as.binop.lhs, &lhs) && get_number(expr->as.binop.rhs, &rhs))
+            *expr = node_number_inline(lhs+rhs);
+    } break;
+    case NK_MULT: {
+        optimize_expr(expr->as.binop.lhs);
+        optimize_expr(expr->as.binop.rhs);
+        if (get_number(expr->as.binop.lhs, &lhs) && get_number(expr->as.binop.rhs, &rhs))
+            *expr = node_number_inline(lhs*rhs);
+    } break;
+    case NK_MOD: {
+        optimize_expr(expr->as.binop.lhs);
+        optimize_expr(expr->as.binop.rhs);
+        if (get_number(expr->as.binop.lhs, &lhs) && get_number(expr->as.binop.rhs, &rhs))
+            *expr = node_number_inline(fmodf(lhs,rhs));
+    } break;
+    case NK_GT: {
+        optimize_expr(expr->as.binop.lhs);
+        optimize_expr(expr->as.binop.rhs);
+        bool num_rhs = get_number(expr->as.binop.rhs, &rhs);
+        bool num_lhs = get_number(expr->as.binop.lhs, &lhs);
+        if (num_rhs && num_lhs)
+            *expr = node_boolean_inline(lhs>rhs);
+        // maybe too much of an edge case
+        else if ((expr->as.binop.lhs->kind == NK_X || expr->as.binop.lhs->kind == NK_Y) && num_rhs && rhs >= 1.f)
+            *expr = node_boolean_inline(false);
+        else if ((expr->as.binop.rhs->kind == NK_X || expr->as.binop.rhs->kind == NK_Y) && num_lhs && lhs <= -1.f)
+            *expr = node_boolean_inline(false);
+    } break;
+    case NK_TRIPLE: {
+        optimize_expr(expr->as.triple.first);
+        optimize_expr(expr->as.triple.second);
+        optimize_expr(expr->as.triple.third);
+    } break;
+    case NK_IF: {
+        optimize_expr(expr->as.iff.cond);
+        optimize_expr(expr->as.iff.then);
+        optimize_expr(expr->as.iff.elze);
+        bool cond;
+        if (get_boolean(expr->as.iff.cond, &cond))
+            *expr = cond ? *expr->as.iff.then : *expr->as.iff.elze;
+    } break;
+    case COUNT_NK:
+    default:
+        UNREACHABLE("optimize_expr");
+    }
+}
+
 size_t arch[] = {2, 28, 28, 9, 3};
 
 int main()
@@ -561,6 +642,7 @@ int main()
         fprintf(stderr, "ERROR: the crappy generation process could not terminate\n");
         return 1;
     }
+    optimize_expr(f);
     node_print_ln(f);
 
     // bool ok = render_pixels(node_triple(node_x(), node_x(), node_x()));
