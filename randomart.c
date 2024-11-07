@@ -595,12 +595,13 @@ bool optimize_func(Arena *arena, Node *func)
 {
 #if OPTIMIZE_MAX_PASSES <= 0
     return true;
-#endif
+#else
     for (size_t i = 0; i < OPTIMIZE_MAX_PASSES; i++) {
         if (!optimize_expr(arena, func))
             return true;
     }
     return false;
+#endif
 }
 
 size_t arch[] = {2, 28, 28, 9, 3};
