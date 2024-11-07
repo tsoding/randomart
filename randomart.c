@@ -10,6 +10,13 @@
 #define ARENA_IMPLEMENTATION
 #include "arena.h"
 
+#define N_THREADS 0
+
+#if N_THREADS > 0
+#define THREADS_IMPLEMENTATION
+#include "threads.h"
+#endif
+
 #define WIDTH 800
 #define HEIGHT 800
 
@@ -387,6 +394,76 @@ bool render_pixels(Node *f)
     return true;
 }
 
+#if N_THREADS > 0
+typedef struct {
+    size_t i;
+    threads_thread thread;
+    Node* f;
+    bool ok;
+} render_thread_params;
+
+void* thread_render_pixels(void *raw_args) {
+    render_thread_params *args = (render_thread_params*)raw_args;
+    Arena arena = {0};
+    for (size_t y = args->i; y < HEIGHT; y += N_THREADS) {
+        float ny = (float)y/HEIGHT*2.0f - 1;
+        for (size_t x = 0; x < WIDTH; ++x) {
+            float nx = (float)x/WIDTH*2.0f - 1;
+            Color c;
+            if (!eval_func(args->f, &arena, nx, ny, &c)) return args->ok=false, NULL;
+            arena_reset(&arena);
+            size_t index = y*WIDTH + x;
+            pixels[index].r = (c.r + 1)/2*255;
+            pixels[index].g = (c.g + 1)/2*255;
+            pixels[index].b = (c.b + 1)/2*255;
+            pixels[index].a = 255;
+        }
+    }
+    return args->ok=true, NULL;
+}
+
+bool render_pixels_threaded(Node* f) {
+    bool result = true;
+    render_thread_params *params = (render_thread_params*)malloc(sizeof(render_thread_params)*N_THREADS);
+
+    for (size_t i = 0; i < N_THREADS; i++) {
+        params[i].f = f;
+        params[i].ok = true;
+        params[i].i = i;
+        if (threads_create(&params[i].thread, thread_render_pixels, &params[i])) {
+            nob_log(ERROR, "Failed to spawn thread");
+            exit(1);
+        }
+    }
+
+    nob_log(INFO, "Threads started");
+    
+    bool bad = false;
+    for (size_t i = 0; i < N_THREADS; i++) {
+        if (threads_join(&params[i].thread, NULL))
+            bad = true;
+    }
+    if (bad)
+        return_defer(false);
+    
+    for (size_t i = 0; i < N_THREADS; i++) {
+        if (!params[i].ok)
+            return_defer(false);
+    }
+
+defer:
+    free(params);
+    return result;
+}
+
+#define render_pixels_actual render_pixels_threaded
+
+#else
+
+#define render_pixels_actual render_pixels
+
+#endif
+
 #define node_print_ln(node) (node_print(node), printf("\n"))
 
 typedef struct {
@@ -576,7 +653,7 @@ int main()
     //             node_mod(node_x(), node_y()),
     //             node_mod(node_x(), node_y()))));
 
-    bool ok = render_pixels(f);
+    bool ok = render_pixels_actual(f);
 
     if (!ok) return 1;
     const char *output_path = "output.png";
