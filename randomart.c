@@ -300,7 +300,7 @@ Node *eval(Node *expr, Arena *arena, float x, float y)
         Node *rhs = eval(expr->as.binop.rhs, arena, x, y);
         if (!rhs) return NULL;
         if (!expect_number(rhs)) return NULL;
-        return node_number_loc(expr->file, expr->line, arena, lhs->as.number + rhs->as.number);
+        return node_number_loc(expr->file, expr->line, arena, (lhs->as.number + rhs->as.number) / 2);
     }
     case NK_MULT: {
         Node *lhs = eval(expr->as.binop.lhs, arena, x, y);
