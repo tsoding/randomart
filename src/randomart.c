@@ -722,6 +722,14 @@ int main(int argc, char **argv)
                 return 1;
             }
             seed = atoi(shift(argv, argc));
+        }
+        else if (strcmp(flag, "-depth") == 0) {
+            UNUSED(shift(argv, argc));
+            if (argc <= 0) {
+                nob_log(ERROR, "No argument is provided for %s", flag);
+                return 1;
+            }
+            depth = atoi(shift(argv, argc));
         } else {
             break;
         }
