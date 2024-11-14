@@ -1,4 +1,6 @@
 output.png
+*.mp4
 nob
 nob.old
 randomart
+build/
