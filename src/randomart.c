@@ -382,7 +382,7 @@ bool eval_func(Node *f, float x, float y, float t, Vector3 *c)
     return true;
 }
 
-bool render_pixels(Image image, Node *f)
+bool render_image(Image image, Node *f)
 {
     Color *pixels = image.data;
     bool result = true;
@@ -778,7 +778,7 @@ int main(int argc, char **argv)
         }
 
         Image image = GenImageColor(width, height, BLANK);
-        if (!render_pixels(image, f)) return 1;
+        if (!render_image(image, f)) return 1;
         if (!ExportImage(image, output_path)) return 1;
 
         return 0;
