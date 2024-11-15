@@ -13,10 +13,6 @@
 #include "arena.h"
 #include "ffmpeg.h"
 
-#define WIDTH 1600
-#define HEIGHT 900
-#define FPS 60
-
 static Arena static_arena = {0};
 static Arena *context_arena = &static_arena;
 #define context_da_append(da, x) arena_da_append(context_arena, (da), (x))
@@ -393,14 +389,14 @@ bool render_pixels(Image image, Node *f)
     Arena temp_arena = {0};
     Arena *saved_arena = context_arena;
     context_arena = &temp_arena;
-    for (size_t y = 0; y < HEIGHT; ++y) {
-        float ny = (float)y/HEIGHT*2.0f - 1;
-        for (size_t x = 0; x < WIDTH; ++x) {
-            float nx = (float)x/WIDTH*2.0f - 1;
+    for (int y = 0; y < image.height; ++y) {
+        float ny = (float)y/image.height*2.0f - 1;
+        for (int x = 0; x < image.width; ++x) {
+            float nx = (float)x/image.width*2.0f - 1;
             Vector3 c;
             if (!eval_func(f, nx, ny, 0.0, &c)) return_defer(false);
             arena_reset(&temp_arena);
-            size_t index = y*WIDTH + x;
+            size_t index = y*image.width + x;
             pixels[index].r = (c.x + 1)/2*255;
             pixels[index].g = (c.y + 1)/2*255;
             pixels[index].b = (c.z + 1)/2*255;
@@ -706,22 +702,39 @@ bool compile_node_func_into_fragment_shader(String_Builder *sb, Node *f)
     return true;
 }
 
+bool flag_int(int *argc, char ***argv, int *value)
+{
+    const char *flag = shift(*argv, *argc);
+    if ((*argc) <= 0) {
+        nob_log(ERROR, "No argument is provided for %s", flag);
+        return false;
+    }
+    *value = atoi(shift(*argv, *argc));
+    return true;
+}
+
 int main(int argc, char **argv)
 {
     const char *program_name = shift(argv, argc);
 
-    int depth = 40;
+    int depth = 30;
     int seed = time(0);
+    int width = 16*100;
+    int height = 9*100;
+    int fps = 60;
 
     while (argc > 0) {
         const char *flag = argv[0];
         if (strcmp(flag, "-seed") == 0) {
-            UNUSED(shift(argv, argc));
-            if (argc <= 0) {
-                nob_log(ERROR, "No argument is provided for %s", flag);
-                return 1;
-            }
-            seed = atoi(shift(argv, argc));
+            if (!flag_int(&argc, &argv, &seed)) return 1;
+        } else if (strcmp(flag, "-depth") == 0) {
+            if (!flag_int(&argc, &argv, &depth)) return 1;
+        } else if (strcmp(flag, "-width") == 0) {
+            if (!flag_int(&argc, &argv, &width)) return 1;
+        } else if (strcmp(flag, "-height") == 0) {
+            if (!flag_int(&argc, &argv, &height)) return 1;
+        } else if (strcmp(flag, "-fps") == 0) {
+            if (!flag_int(&argc, &argv, &fps)) return 1;
         } else {
             break;
         }
@@ -755,6 +768,8 @@ int main(int argc, char **argv)
         srand(seed);
         nob_log(INFO, "SEED: %d", seed);
         nob_log(INFO, "DEPTH: %d", depth);
+        nob_log(INFO, "WIDTH: %d", width);
+        nob_log(INFO, "HEIGHT: %d", height);
 
         Node *f = gen_rule(grammar, entry, depth);
         if (!f) {
@@ -762,7 +777,7 @@ int main(int argc, char **argv)
             return 1;
         }
 
-        Image image = GenImageColor(WIDTH, HEIGHT, BLANK);
+        Image image = GenImageColor(width, height, BLANK);
         if (!render_pixels(image, f)) return 1;
         if (!ExportImage(image, output_path)) return 1;
 
@@ -781,6 +796,9 @@ int main(int argc, char **argv)
         srand(seed);
         nob_log(INFO, "SEED: %d", seed);
         nob_log(INFO, "DEPTH: %d", depth);
+        nob_log(INFO, "WIDTH: %d", width);
+        nob_log(INFO, "HEIGHT: %d", height);
+        nob_log(INFO, "FPS: %d", fps);
 
         Node *f = gen_rule(grammar, entry, depth);
         if (!f) {
@@ -794,11 +812,11 @@ int main(int argc, char **argv)
 
         FFMPEG *ffmpeg = NULL;
 
-        InitWindow(WIDTH, HEIGHT, "RandomArt");
-        RenderTexture2D screen = LoadRenderTexture(WIDTH, HEIGHT);
+        InitWindow(width, height, "RandomArt");
+        RenderTexture2D screen = LoadRenderTexture(width, height);
         Shader shader = LoadShaderFromMemory(NULL, sb.items);
         int time_loc = GetShaderLocation(shader, "time");
-        SetTargetFPS(FPS);
+        SetTargetFPS(fps);
         SetExitKey(KEY_NULL);
         Texture default_texture = {
             .id = rlGetTextureIdDefault(),
@@ -827,7 +845,7 @@ int main(int argc, char **argv)
                 if (!pause) time += dt;
 
                 if (IsKeyPressed(KEY_R)) {
-                    ffmpeg = ffmpeg_start_rendering(WIDTH, HEIGHT, FPS);
+                    ffmpeg = ffmpeg_start_rendering(width, height, fps);
                     time = 0;
                     SetTraceLogLevel(LOG_WARNING);
                 }
@@ -873,10 +891,10 @@ int main(int argc, char **argv)
                     }
 
                     Image image = LoadImageFromTexture(screen.texture);
-                    ffmpeg_send_frame_flipped(ffmpeg, image.data, WIDTH, HEIGHT);
+                    ffmpeg_send_frame_flipped(ffmpeg, image.data, width, height);
                     UnloadImage(image);
 
-                    time += 1.0f/FPS;
+                    time += 1.0f/fps;
 
                     if (IsKeyPressed(KEY_ESCAPE)) {
                         time = 0;
