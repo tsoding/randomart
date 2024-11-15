@@ -382,6 +382,13 @@ bool eval_func(Node *f, float x, float y, float t, Vector3 *c)
     return true;
 }
 
+float clamp_float(float v, float lo, float hi)
+{
+    if (v < lo) return lo;
+    if (v > hi) return hi;
+    return v;
+}
+
 bool render_image(Image image, Node *f)
 {
     Color *pixels = image.data;
@@ -397,9 +404,9 @@ bool render_image(Image image, Node *f)
             if (!eval_func(f, nx, ny, 0.0, &c)) return_defer(false);
             arena_reset(&temp_arena);
             size_t index = y*image.width + x;
-            pixels[index].r = (c.x + 1)/2*255;
-            pixels[index].g = (c.y + 1)/2*255;
-            pixels[index].b = (c.z + 1)/2*255;
+            pixels[index].r = clamp_float((c.x + 1)/2*255, 0, 255);
+            pixels[index].g = clamp_float((c.y + 1)/2*255, 0, 255);
+            pixels[index].b = clamp_float((c.z + 1)/2*255, 0, 255);
             pixels[index].a = 255;
         }
     }
@@ -778,6 +785,7 @@ int main(int argc, char **argv)
         }
 
         Image image = GenImageColor(width, height, BLANK);
+        nob_log(INFO, "Generating image...");
         if (!render_image(image, f)) return 1;
         if (!ExportImage(image, output_path)) return 1;
 
