@@ -80,7 +80,7 @@ typedef union {
     Node *unop;
     Node_Triple triple;
     Node_If iff;
-    const char *rule;
+    Alexer_Token rule;
 } Node_As;
 
 struct Node {
@@ -122,7 +122,7 @@ Node *node_number_loc(const char *file, int line, float number)
 }
 #define node_number(number) node_number_loc(__FILE__, __LINE__, number)
 
-Node *node_rule_loc(const char *file, int line, const char *rule)
+Node *node_rule_loc(const char *file, int line, Alexer_Token rule)
 {
     Node *node = node_loc(file, line, NK_RULE);
     node->as.rule = rule;
@@ -239,7 +239,7 @@ void node_print(Node *node)
         printf(")");
         break;
     case NK_RULE:
-        printf("rule(%s)", node->as.rule);
+        printf("rule("Alexer_Token_Fmt")", Alexer_Token_Arg(node->as.rule));
         break;
     case NK_RANDOM:
         printf("random");
@@ -428,7 +428,7 @@ typedef struct {
     size_t capacity;
     size_t count;
     size_t weight_sum;
-    const char *name;
+    Alexer_Token name;
 } Grammar_Branches;
 
 typedef struct {
@@ -443,7 +443,7 @@ void grammar_print(Grammar grammar)
     TODO("grammar_print: use the same grammar as the one we parse");
 }
 
-Node *gen_rule(Grammar grammar, const char *rule, int depth);
+Node *gen_rule(Grammar grammar, Alexer_Token rule, int depth);
 
 float rand_float(void)
 {
@@ -510,17 +510,17 @@ Node *gen_node(Grammar grammar, Node *node, int depth)
 
 #define GEN_RULE_MAX_ATTEMPTS 100
 
-Grammar_Branches *branches_by_name(Grammar *grammar, const char *rule)
+Grammar_Branches *branches_by_name(Grammar *grammar, Alexer_Token rule)
 {
     for (size_t i = 0; i < grammar->count; ++i) {
-        if (strcmp(grammar->items[i].name, rule) == 0) {
+        if (alexer_token_text_equal(grammar->items[i].name, rule)) {
             return &grammar->items[i];
         }
     }
     return NULL;
 }
 
-Node *gen_rule(Grammar grammar, const char *rule, int depth)
+Node *gen_rule(Grammar grammar, Alexer_Token rule, int depth)
 {
     if (depth <= 0) return NULL;
 
@@ -543,7 +543,7 @@ Node *gen_rule(Grammar grammar, const char *rule, int depth)
     return node;
 }
 
-void grammar_append_branches(Grammar *grammar, Grammar_Branches *branches, const char *name)
+void grammar_append_branches(Grammar *grammar, Grammar_Branches *branches, Alexer_Token name)
 {
     branches->name = name;
     branches->weight_sum = 0;
@@ -554,16 +554,32 @@ void grammar_append_branches(Grammar *grammar, Grammar_Branches *branches, const
     memset(branches, 0, sizeof(*branches));
 }
 
+#define SYMBOL(name_cstr) symbol_impl(__FILE__, __LINE__, name_cstr)
+
+Alexer_Token symbol_impl(const char *file, int line, const char *name_cstr)
+{
+    return (Alexer_Token) {
+        .kind = ALEXER_SYMBOL,
+        .loc = {
+            .file_path = file,
+            .row = line,
+            .col = 0,
+        },
+        .begin = name_cstr,
+        .end = name_cstr + strlen(name_cstr),
+    };
+}
+
 // TODO: load grammar from file
-const char *default_grammar(Grammar *grammar)
+Alexer_Token default_grammar(Grammar *grammar)
 {
     Grammar_Branches branches = {0};
 
     context_da_append(&branches, ((Grammar_Branch) {
-        .node = node_triple(node_rule("c"), node_rule("c"), node_rule("c")),
+        .node = node_triple(node_rule(SYMBOL("c")), node_rule(SYMBOL("c")), node_rule(SYMBOL("c"))),
         .weight = 1,
     }));
-    grammar_append_branches(grammar, &branches, "e");
+    grammar_append_branches(grammar, &branches, SYMBOL("e"));
 
     context_da_append(&branches, ((Grammar_Branch) {
         .node = node_random(),
@@ -589,22 +605,22 @@ const char *default_grammar(Grammar *grammar)
                      node_mult(node_t(), node_t()))),
         .weight = 1,
     }));
-    grammar_append_branches(grammar, &branches, "a");
+    grammar_append_branches(grammar, &branches, SYMBOL("a"));
 
     context_da_append(&branches, ((Grammar_Branch) {
-        .node = node_rule("a"),
+        .node = node_rule(SYMBOL("a")),
         .weight = 2,
     }));
     context_da_append(&branches, ((Grammar_Branch) {
-        .node = node_add(node_rule("c"), node_rule("c")),
+        .node = node_add(node_rule(SYMBOL("c")), node_rule(SYMBOL("c"))),
         .weight = 3,
     }));
     context_da_append(&branches, ((Grammar_Branch) {
-        .node = node_mult(node_rule("c"), node_rule("c")),
+        .node = node_mult(node_rule(SYMBOL("c")), node_rule(SYMBOL("c"))),
         .weight = 3,
     }));
-    grammar_append_branches(grammar, &branches, "c");
-    return "e";
+    grammar_append_branches(grammar, &branches, SYMBOL("c"));
+    return SYMBOL("e");
 }
 
 bool compile_node_into_fragment_expression(String_Builder *sb, Node *expr, size_t level)
@@ -775,7 +791,7 @@ int main(int argc, char **argv)
         }
 
         Grammar grammar = {0};
-        const char *entry = default_grammar(&grammar);
+        Alexer_Token entry = default_grammar(&grammar);
 
         srand(seed);
         nob_log(INFO, "SEED: %d", seed);
@@ -804,7 +820,7 @@ int main(int argc, char **argv)
         }
 
         Grammar grammar = {0};
-        const char *entry = default_grammar(&grammar);
+        Alexer_Token entry = default_grammar(&grammar);
 
         srand(seed);
         nob_log(INFO, "SEED: %d", seed);
