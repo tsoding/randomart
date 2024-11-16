@@ -28,6 +28,5 @@ $ feh output.png
 
 ```console
 $ cc -o nob nob.c
-$ ./nob run gui
-$ feh output.png
+$ ./nob run gui grammar.bnf
 ```
