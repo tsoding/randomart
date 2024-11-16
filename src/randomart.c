@@ -80,7 +80,7 @@ typedef union {
     Node *unop;
     Node_Triple triple;
     Node_If iff;
-    int rule;
+    const char *rule;
 } Node_As;
 
 struct Node {
@@ -122,7 +122,7 @@ Node *node_number_loc(const char *file, int line, float number)
 }
 #define node_number(number) node_number_loc(__FILE__, __LINE__, number)
 
-Node *node_rule_loc(const char *file, int line, int rule)
+Node *node_rule_loc(const char *file, int line, const char *rule)
 {
     Node *node = node_loc(file, line, NK_RULE);
     node->as.rule = rule;
@@ -239,7 +239,7 @@ void node_print(Node *node)
         printf(")");
         break;
     case NK_RULE:
-        printf("rule(%d)", node->as.rule);
+        printf("rule(%s)", node->as.rule);
         break;
     case NK_RANDOM:
         printf("random");
@@ -428,6 +428,7 @@ typedef struct {
     size_t capacity;
     size_t count;
     size_t weight_sum;
+    const char *name;
 } Grammar_Branches;
 
 typedef struct {
@@ -442,7 +443,7 @@ void grammar_print(Grammar grammar)
     TODO("grammar_print: use the same grammar as the one we parse");
 }
 
-Node *gen_rule(Grammar grammar, size_t rule, int depth);
+Node *gen_rule(Grammar grammar, const char *rule, int depth);
 
 float rand_float(void)
 {
@@ -509,13 +510,21 @@ Node *gen_node(Grammar grammar, Node *node, int depth)
 
 #define GEN_RULE_MAX_ATTEMPTS 100
 
-Node *gen_rule(Grammar grammar, size_t rule, int depth)
+Grammar_Branches *branches_by_name(Grammar *grammar, const char *rule)
+{
+    for (size_t i = 0; i < grammar->count; ++i) {
+        if (strcmp(grammar->items[i].name, rule) == 0) {
+            return &grammar->items[i];
+        }
+    }
+    return NULL;
+}
+
+Node *gen_rule(Grammar grammar, const char *rule, int depth)
 {
     if (depth <= 0) return NULL;
 
-    assert(rule < grammar.count);
-
-    Grammar_Branches *branches = &grammar.items[rule];
+    Grammar_Branches *branches = branches_by_name(&grammar, rule);
     assert(branches->count > 0);
 
     Node *node = NULL;
@@ -534,8 +543,9 @@ Node *gen_rule(Grammar grammar, size_t rule, int depth)
     return node;
 }
 
-void grammar_append_branches(Grammar *grammar, Grammar_Branches *branches)
+void grammar_append_branches(Grammar *grammar, Grammar_Branches *branches, const char *name)
 {
+    branches->name = name;
     branches->weight_sum = 0;
     for (size_t i = 0; i < branches->count; ++i) {
         branches->weight_sum += branches->items[i].weight;
@@ -545,18 +555,15 @@ void grammar_append_branches(Grammar *grammar, Grammar_Branches *branches)
 }
 
 // TODO: load grammar from file
-int default_grammar(Grammar *grammar)
+const char *default_grammar(Grammar *grammar)
 {
     Grammar_Branches branches = {0};
-    int e = 0;
-    int a = 1;
-    int c = 2;
 
     context_da_append(&branches, ((Grammar_Branch) {
-        .node = node_triple(node_rule(c), node_rule(c), node_rule(c)),
+        .node = node_triple(node_rule("c"), node_rule("c"), node_rule("c")),
         .weight = 1,
     }));
-    grammar_append_branches(grammar, &branches);
+    grammar_append_branches(grammar, &branches, "e");
 
     context_da_append(&branches, ((Grammar_Branch) {
         .node = node_random(),
@@ -582,22 +589,22 @@ int default_grammar(Grammar *grammar)
                      node_mult(node_t(), node_t()))),
         .weight = 1,
     }));
-    grammar_append_branches(grammar, &branches);
+    grammar_append_branches(grammar, &branches, "a");
 
     context_da_append(&branches, ((Grammar_Branch) {
-        .node = node_rule(a),
+        .node = node_rule("a"),
         .weight = 2,
     }));
     context_da_append(&branches, ((Grammar_Branch) {
-        .node = node_add(node_rule(c), node_rule(c)),
+        .node = node_add(node_rule("c"), node_rule("c")),
         .weight = 3,
     }));
     context_da_append(&branches, ((Grammar_Branch) {
-        .node = node_mult(node_rule(c), node_rule(c)),
+        .node = node_mult(node_rule("c"), node_rule("c")),
         .weight = 3,
     }));
-    grammar_append_branches(grammar, &branches);
-    return e;
+    grammar_append_branches(grammar, &branches, "c");
+    return "e";
 }
 
 bool compile_node_into_fragment_expression(String_Builder *sb, Node *expr, size_t level)
@@ -768,7 +775,7 @@ int main(int argc, char **argv)
         }
 
         Grammar grammar = {0};
-        int entry = default_grammar(&grammar);
+        const char *entry = default_grammar(&grammar);
 
         srand(seed);
         nob_log(INFO, "SEED: %d", seed);
@@ -797,7 +804,7 @@ int main(int argc, char **argv)
         }
 
         Grammar grammar = {0};
-        int entry = default_grammar(&grammar);
+        const char *entry = default_grammar(&grammar);
 
         srand(seed);
         nob_log(INFO, "SEED: %d", seed);
