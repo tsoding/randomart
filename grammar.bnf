@@ -2,19 +2,21 @@
 E | vec3(C, C, C)
   ;
 
-# Term
+# Terminal
 A | random
   | x
   | y
   | t
-  | sqrt(add(mult(x, x), mult(y, y)))
+  | abs(x)
+  | abs(y)
+  | sqrt(add(mult(x, x), mult(y, y))) # Distance from (0, 0) to (x, y)
   ;
 
-# Binops
+# Expressions
 C ||  A
   ||| add(C, C)
   ||| mult(C, C)
-  # ||| sqrt(abs(C))
+  | sqrt(abs(C))
   # ||| abs(C)
-  ||| sin(C)
+  #||| sin(C)
   ;

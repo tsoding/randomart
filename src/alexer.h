@@ -4,6 +4,7 @@
 #include <assert.h>
 #include <stdlib.h>
 #include <stdbool.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 #include <ctype.h>
@@ -67,6 +68,11 @@ typedef struct {
 #define Alexer_Loc_Fmt "%s:%zu:%zu"
 #define Alexer_Loc_Arg(loc) (loc).file_path, (loc).row, (loc).col
 
+#define ALEXER_LOW32(x) (((uint64_t)(x))&0xFFFFFFFF)
+#define ALEXER_ID(kind, index) ((ALEXER_LOW32(index)<<32)|(ALEXER_LOW32(kind)))
+#define ALEXER_KIND(id) ALEXER_LOW32(id)
+#define ALEXER_INDEX(id) ALEXER_LOW32((id)>>32)
+
 typedef enum {
     ALEXER_INVALID,
     ALEXER_END,
@@ -89,16 +95,14 @@ const char *alexer_kind_names[ALEXER_COUNT_KINDS] = {
     [ALEXER_PUNCT]   = "PUNCT",
     [ALEXER_STRING]  = "STRING",
 };
-#define alexer_kind_name(kind) (ALEXER_ASSERT(0 <= kind && kind < ALEXER_COUNT_KINDS), alexer_kind_names[kind])
+#define alexer_kind_name(kind) (ALEXER_ASSERT((uint64_t)kind < ALEXER_COUNT_KINDS), alexer_kind_names[(uint64_t)kind])
 
 typedef struct {
-    long kind;
+    uint64_t id;
     Alexer_Loc loc;
     const char *begin;
     const char *end;
     long int_value;
-    size_t punct_index;
-    size_t keyword_index;
 } Alexer_Token;
 
 bool alexer_token_text_equal(Alexer_Token a, Alexer_Token b);
@@ -161,12 +165,8 @@ bool alexer_is_symbol_start(char x); // TODO: Configurable alexer_is_symbol_star
 //   Gets the next token. Returns false on END or INVALID. Returns true on any other kind of token.
 void alexer_default_diagf(Alexer_Loc loc, const char *level, const char *fmt, ...);
 void alexer_ignore_diagf(Alexer_Loc loc, const char *level, const char *fmt, ...);
-bool alexer_expect_kind(Alexer *l, Alexer_Token t, Alexer_Kind kind);
-bool alexer_expect_one_of_kinds(Alexer *l, Alexer_Token t, Alexer_Kind *kinds, size_t kinds_size);
-bool alexer_expect_punct(Alexer *l, Alexer_Token t, size_t punct_index);
-bool alexer_expect_one_of_puncts(Alexer *l, Alexer_Token t, size_t *punct_indices, size_t punct_indices_count);
-bool alexer_expect_keyword(Alexer *l, Alexer_Token t, size_t keyword_index);
-bool alexer_expect_one_of_keywords(Alexer *l, Alexer_Token t, size_t *keyword_indices, size_t keyword_indices_count);
+bool alexer_expect_id(Alexer *l, Alexer_Token t, uint64_t id);
+bool alexer_expect_one_of_ids(Alexer *l, Alexer_Token t, uint64_t *ids, size_t ids_count);
 
 #endif // ALEXER_H_
 
@@ -288,7 +288,7 @@ another_trim_round:
     t->end = &l->content[l->cur];
 
     if (l->cur >= l->size) {
-        t->kind = ALEXER_END;
+        t->id = ALEXER_END;
         return false;
     }
 
@@ -296,8 +296,7 @@ another_trim_round:
     for (size_t i = 0; i < l->puncts_count; ++i) {
         if (alexer_starts_with_cstr(l, l->puncts[i])) {
             size_t n = strlen(l->puncts[i]);
-            t->kind = ALEXER_PUNCT;
-            t->punct_index = i;
+            t->id = ALEXER_ID(ALEXER_PUNCT, i);
             t->end += n;
             alexer_chop_chars(l, n);
             return true;
@@ -306,7 +305,7 @@ another_trim_round:
 
     // Int
     if (isdigit(l->content[l->cur])) {
-        t->kind = ALEXER_INT;
+        t->id = ALEXER_INT;
         while (l->cur < l->size && isdigit(l->content[l->cur])) {
             t->int_value = t->int_value*10 + l->content[l->cur] - '0';
             t->end += 1;
@@ -317,7 +316,7 @@ another_trim_round:
 
     // Symbol
     if (alexer_is_symbol_start(l->content[l->cur])) {
-        t->kind = ALEXER_SYMBOL;
+        t->id = ALEXER_SYMBOL;
         while (l->cur < l->size && alexer_is_symbol(l->content[l->cur])) {
             t->end += 1;
             alexer_chop_char(l);
@@ -327,8 +326,7 @@ another_trim_round:
         for (size_t i = 0; i < l->keywords_count; ++i) {
             size_t n = strlen(l->keywords[i]);
             if (n == (size_t)(t->end - t->begin) && memcmp(l->keywords[i], t->begin, n) == 0) {
-                t->kind = ALEXER_KEYWORD;
-                t->keyword_index = i;
+                t->id = ALEXER_ID(ALEXER_KEYWORD, i);
                 break;
             }
         }
@@ -341,105 +339,93 @@ another_trim_round:
     return false;
 }
 
-bool alexer_expect_punct(Alexer *l, Alexer_Token t, size_t punct_index)
+void alexer_sb_append_id_display(Alexer_String_Builder *sb, Alexer *l, uint64_t id)
 {
-    return alexer_expect_one_of_puncts(l, t, &punct_index, 1);
+    uint64_t kind = ALEXER_KIND(id);
+    uint64_t index = ALEXER_INDEX(id);
+    switch (kind) {
+        case ALEXER_INVALID:
+        case ALEXER_END:
+        case ALEXER_STRING:
+        case ALEXER_INT:
+        case ALEXER_SYMBOL:
+            alexer_sb_append_cstr(sb, alexer_kind_name(kind));
+            break;
+        case ALEXER_KEYWORD:
+            alexer_sb_append_cstr(sb, alexer_kind_name(kind));
+            alexer_sb_append_cstr(sb, " `");
+            alexer_sb_append_cstr(sb, (ALEXER_ASSERT(index < l->keywords_count), l->keywords[index]));
+            alexer_sb_append_cstr(sb, "`");
+            break;
+        case ALEXER_PUNCT:
+            alexer_sb_append_cstr(sb, alexer_kind_name(kind));
+            alexer_sb_append_cstr(sb, " `");
+            alexer_sb_append_cstr(sb, (ALEXER_ASSERT(index < l->puncts_count), l->puncts[index]));
+            alexer_sb_append_cstr(sb, "`");
+            break;
+        case ALEXER_COUNT_KINDS:
+        default: ALEXER_ASSERT(0 && "unreachable");
+    }
 }
 
-bool alexer_expect_one_of_puncts(Alexer *l, Alexer_Token t, size_t *punct_indices, size_t punct_indices_count)
+void alexer_sb_append_token_display(Alexer_String_Builder *sb, Alexer *l, Alexer_Token t)
 {
-    bool result = false;
-    Alexer_String_Builder sb = {0};
-    ALEXER_ASSERT(punct_indices_count > 0);
-    if (!alexer_expect_kind(l, t, ALEXER_PUNCT)) alexer_return_defer(false);
-    for (size_t i = 0; i < punct_indices_count; ++i) {
-        if (t.punct_index == punct_indices[i]) {
-            alexer_return_defer(true);
-        }
+    uint64_t kind = ALEXER_KIND(t.id);
+    uint64_t index = ALEXER_INDEX(t.id);
+    switch (kind) {
+        case ALEXER_INVALID:
+        case ALEXER_END:
+        case ALEXER_STRING:
+        case ALEXER_INT:
+        case ALEXER_SYMBOL:
+            alexer_sb_append_cstr(sb, alexer_kind_name(kind));
+            alexer_sb_append_cstr(sb, " `");
+            alexer_da_append_many(sb, t.begin, t.end - t.begin);
+            alexer_sb_append_cstr(sb, "`");
+            break;
+        case ALEXER_KEYWORD:
+            alexer_sb_append_cstr(sb, alexer_kind_name(kind));
+            alexer_sb_append_cstr(sb, " `");
+            alexer_sb_append_cstr(sb, (ALEXER_ASSERT(index < l->keywords_count), l->keywords[index]));
+            alexer_sb_append_cstr(sb, "`");
+            break;
+        case ALEXER_PUNCT:
+            alexer_sb_append_cstr(sb, alexer_kind_name(kind));
+            alexer_sb_append_cstr(sb, " `");
+            alexer_sb_append_cstr(sb, (ALEXER_ASSERT(index < l->puncts_count), l->puncts[index]));
+            alexer_sb_append_cstr(sb, "`");
+            break;
+        case ALEXER_COUNT_KINDS:
+        default: ALEXER_ASSERT(0 && "unreachable");
     }
-
-    for (size_t i = 0; i < punct_indices_count; ++i) {
-        if (i > 0) alexer_sb_append_cstr(&sb, ", ");
-        ALEXER_ASSERT(punct_indices[i] < l->puncts_count);
-        alexer_sb_append_cstr(&sb, "`");
-        alexer_sb_append_cstr(&sb, l->puncts[punct_indices[i]]);
-        alexer_sb_append_cstr(&sb, "`");
-    }
-    alexer_sb_append_null(&sb);
-
-    ALEXER_ASSERT(t.punct_index < l->puncts_count);
-    l->diagf(t.loc, "ERROR", "Expected %s but got `%s`", sb.items, l->puncts[t.punct_index]);
-
-defer:
-    free(sb.items);
-    return result;
 }
 
-bool alexer_expect_keyword(Alexer *l, Alexer_Token t, size_t keyword_index)
+bool alexer_expect_id(Alexer *l, Alexer_Token t, uint64_t id)
 {
-    return alexer_expect_one_of_keywords(l, t, &keyword_index, 1);
+    return alexer_expect_one_of_ids(l, t, &id, 1);
 }
 
-bool alexer_expect_one_of_keywords(Alexer *l, Alexer_Token t, size_t *keyword_indices, size_t keyword_indices_count)
-{
-    bool result = false;
-    Alexer_String_Builder sb = {0};
-    ALEXER_ASSERT(keyword_indices_count > 0);
-    if (!alexer_expect_kind(l, t, ALEXER_KEYWORD)) return false;
-    for (size_t i = 0; i < keyword_indices_count; ++i) {
-        if (t.keyword_index == keyword_indices[i]) {
-            alexer_return_defer(true);
-        }
-    }
-
-    for (size_t i = 0; i < keyword_indices_count; ++i) {
-        if (i > 0) alexer_sb_append_cstr(&sb, ", ");
-        ALEXER_ASSERT(keyword_indices[i] < l->keywords_count);
-        alexer_sb_append_cstr(&sb, "`");
-        alexer_sb_append_cstr(&sb, l->keywords[keyword_indices[i]]);
-        alexer_sb_append_cstr(&sb, "`");
-    }
-    alexer_sb_append_null(&sb);
-
-    ALEXER_ASSERT(t.keyword_index < l->keywords_count);
-    if (keyword_indices_count == 1) {
-        l->diagf(t.loc, "ERROR", "Expected keyword %s but got keyword `%s`", sb.items, l->keywords[t.keyword_index]);
-    } else {
-        l->diagf(t.loc, "ERROR", "Expected keywords %s but got keyword `%s`", sb.items, l->keywords[t.keyword_index]);
-    }
-
-defer:
-    free(sb.items);
-    return result;
-}
-
-bool alexer_expect_kind(Alexer *l, Alexer_Token t, Alexer_Kind kind)
-{
-    return alexer_expect_one_of_kinds(l, t, &kind, 1);
-}
-
-bool alexer_expect_one_of_kinds(Alexer *l, Alexer_Token t, Alexer_Kind *kinds, size_t kinds_size)
+bool alexer_expect_one_of_ids(Alexer *l, Alexer_Token t, uint64_t *ids, size_t ids_count)
 {
     bool result = false;
     Alexer_String_Builder sb = {0};
 
-    for (size_t i = 0; i < kinds_size; ++i) {
-        if (t.kind == kinds[i]) {
+    for (size_t i = 0; i < ids_count; ++i) {
+        if (t.id == ids[i]) {
             alexer_return_defer(true);
         }
     }
 
-    for (size_t i = 0; i < kinds_size; ++i) {
+    alexer_sb_append_cstr(&sb, "Expected ");
+    for (size_t i = 0; i < ids_count; ++i) {
         if (i > 0) alexer_sb_append_cstr(&sb, ", ");
-        alexer_sb_append_cstr(&sb, alexer_kind_name(kinds[i]));
+        alexer_sb_append_id_display(&sb, l, ids[i]);
     }
+    alexer_sb_append_cstr(&sb, " but got ");
+    alexer_sb_append_token_display(&sb, l, t);
     alexer_sb_append_null(&sb);
 
-    if (t.kind == ALEXER_END) {
-        l->diagf(t.loc, "ERROR", "Expected %s but got %s", sb.items, alexer_kind_name(t.kind));
-    } else {
-        l->diagf(t.loc, "ERROR", "Expected %s but got %s `%.*s`", sb.items, alexer_kind_name(t.kind), t.end - t.begin, t.begin);
-    }
+    l->diagf(t.loc, "ERROR", "%s", sb.items);
 
 defer:
     free(sb.items);
