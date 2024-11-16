@@ -12,6 +12,8 @@
 #define ARENA_IMPLEMENTATION
 #include "arena.h"
 #include "ffmpeg.h"
+#define ALEXER_IMPLEMENTATION
+#include "alexer.h"
 
 static Arena static_arena = {0};
 static Arena *context_arena = &static_arena;
@@ -26,6 +28,8 @@ typedef enum {
     NK_NUMBER,
     NK_BOOLEAN,
     NK_SQRT,
+    NK_ABS,
+    NK_SIN,
     NK_ADD,
     NK_MULT,
     NK_MOD,
@@ -36,7 +40,7 @@ typedef enum {
     COUNT_NK,
 } Node_Kind;
 
-static_assert(COUNT_NK == 14, "Amount of nodes have changed");
+static_assert(COUNT_NK == 16, "Amount of nodes have changed");
 const char *nk_names[COUNT_NK] = {
     [NK_X]       = "x",
     [NK_Y]       = "y",
@@ -45,6 +49,8 @@ const char *nk_names[COUNT_NK] = {
     [NK_RANDOM]  = "random",
     [NK_NUMBER]  = "number",
     [NK_SQRT]    = "sqrt",
+    [NK_SIN]    = "sin",
+    [NK_ABS]     = "abs",
     [NK_ADD]     = "add",
     [NK_MULT]    = "mult",
     [NK_MOD]     = "mod",
@@ -238,6 +244,16 @@ void node_print(Node *node)
         node_print(node->as.unop);
         printf(")");
         break;
+    case NK_SIN:
+        printf("sin(");
+        node_print(node->as.unop);
+        printf(")");
+        break;
+    case NK_ABS:
+        printf("abs(");
+        node_print(node->as.unop);
+        printf(")");
+        break;
     case NK_RULE:
         printf("rule("Alexer_Token_Fmt")", Alexer_Token_Arg(node->as.rule));
         break;
@@ -307,6 +323,18 @@ Node *eval(Node *expr, float x, float y, float t)
         if (!rhs) return NULL;
         if (!expect_number(rhs)) return NULL;
         return node_number_loc(expr->file, expr->line, sqrtf(rhs->as.number));
+    }
+    case NK_SIN: {
+        Node *rhs = eval(expr->as.unop, x, y, t);
+        if (!rhs) return NULL;
+        if (!expect_number(rhs)) return NULL;
+        return node_number_loc(expr->file, expr->line, sinf(rhs->as.number));
+    }
+    case NK_ABS: {
+        Node *rhs = eval(expr->as.unop, x, y, t);
+        if (!rhs) return NULL;
+        if (!expect_number(rhs)) return NULL;
+        return node_number_loc(expr->file, expr->line, fabsf(rhs->as.number));
     }
     case NK_ADD: {
         Node *lhs = eval(expr->as.binop.lhs, x, y, t);
@@ -439,8 +467,17 @@ typedef struct {
 
 void grammar_print(Grammar grammar)
 {
-    UNUSED(grammar);
-    TODO("grammar_print: use the same grammar as the one we parse");
+    for (size_t i = 0; i < grammar.count; ++i) {
+        Grammar_Branches *branches = &grammar.items[i];
+        printf(Alexer_Token_Fmt"\n", Alexer_Token_Arg(branches->name));
+        for (size_t j = 0; j < branches->count; ++j) {
+            Grammar_Branch *branch = &branches->items[j];
+            printf("  ");
+            for (size_t k = 0; k < branch->weight; ++k) printf("|");
+            node_print_ln(branch->node);
+        }
+        printf("  ;\n");
+    }
 }
 
 Node *gen_rule(Grammar grammar, Alexer_Token rule, int depth);
@@ -461,6 +498,16 @@ Node *gen_node(Grammar grammar, Node *node, int depth)
         return node;
 
     case NK_SQRT: {
+        Node *rhs = gen_node(grammar, node->as.unop, depth);
+        if (!rhs) return NULL;
+        return node_unop_loc(node->file, node->line, node->kind, rhs);
+    }
+    case NK_SIN: {
+        Node *rhs = gen_node(grammar, node->as.unop, depth);
+        if (!rhs) return NULL;
+        return node_unop_loc(node->file, node->line, node->kind, rhs);
+    }
+    case NK_ABS: {
         Node *rhs = gen_node(grammar, node->as.unop, depth);
         if (!rhs) return NULL;
         return node_unop_loc(node->file, node->line, node->kind, rhs);
@@ -517,6 +564,7 @@ Grammar_Branches *branches_by_name(Grammar *grammar, Alexer_Token rule)
             return &grammar->items[i];
         }
     }
+    alexer_default_diagf(rule.loc, "ERROR", "Rule "Alexer_Token_Fmt" does not exist", Alexer_Token_Arg(rule));
     return NULL;
 }
 
@@ -525,6 +573,7 @@ Node *gen_rule(Grammar grammar, Alexer_Token rule, int depth)
     if (depth <= 0) return NULL;
 
     Grammar_Branches *branches = branches_by_name(&grammar, rule);
+    if (branches == NULL) return NULL;
     assert(branches->count > 0);
 
     Node *node = NULL;
@@ -650,6 +699,17 @@ bool compile_node_into_fragment_expression(String_Builder *sb, Node *expr, size_
         if (!compile_node_into_fragment_expression(sb, expr->as.unop, level + 1)) return false;
         sb_append_cstr(sb, ")");
         break;
+    case NK_SIN:
+        sb_append_cstr(sb, "sin(");
+        if (!compile_node_into_fragment_expression(sb, expr->as.unop, level + 1)) return false;
+        sb_append_cstr(sb, ")");
+        break;
+
+    case NK_ABS:
+        sb_append_cstr(sb, "abs(");
+        if (!compile_node_into_fragment_expression(sb, expr->as.unop, level + 1)) return false;
+        sb_append_cstr(sb, ")");
+        break;
 
     case NK_ADD:
         sb_append_cstr(sb, "(");
@@ -741,6 +801,198 @@ bool flag_int(int *argc, char ***argv, int *value)
     return true;
 }
 
+typedef enum {
+    PUNCT_BAR,
+    PUNCT_OPAREN,
+    PUNCT_CPAREN,
+    PUNCT_COMMA,
+    PUNCT_SEMICOLON,
+    COUNT_PUNCTS,
+} Punct_Index;
+
+const char *puncts[COUNT_PUNCTS] = {
+    [PUNCT_BAR]       = "|",
+    [PUNCT_OPAREN]    = "(",
+    [PUNCT_CPAREN]    = ")",
+    [PUNCT_COMMA]     = ",",
+    [PUNCT_SEMICOLON] = ";",
+};
+
+const char *comments[] = {
+    "#",
+};
+
+bool parse_node(Alexer *l, Node **node);
+
+bool parse_pair(Alexer *l, Node **first, Node **second)
+{
+    Alexer_Token t = {0};
+    alexer_get_token(l, &t);
+    if (!alexer_expect_punct(l, t, PUNCT_OPAREN)) return false;
+
+    if (!parse_node(l, first)) return false;
+
+    alexer_get_token(l, &t);
+    if (!alexer_expect_punct(l, t, PUNCT_COMMA)) return false;
+
+    if (!parse_node(l, second)) return false;
+
+    alexer_get_token(l, &t);
+    if (!alexer_expect_punct(l, t, PUNCT_CPAREN)) return false;
+
+    return true;
+}
+
+bool parse_triple(Alexer *l, Node **first, Node **second, Node **third)
+{
+    Alexer_Token t = {0};
+    alexer_get_token(l, &t);
+    if (!alexer_expect_punct(l, t, PUNCT_OPAREN)) return false;
+
+    if (!parse_node(l, first)) return false;
+
+    alexer_get_token(l, &t);
+    if (!alexer_expect_punct(l, t, PUNCT_COMMA)) return false;
+
+    if (!parse_node(l, second)) return false;
+
+    alexer_get_token(l, &t);
+    if (!alexer_expect_punct(l, t, PUNCT_COMMA)) return false;
+
+    if (!parse_node(l, third)) return false;
+
+    alexer_get_token(l, &t);
+    if (!alexer_expect_punct(l, t, PUNCT_CPAREN)) return false;
+
+    return true;
+}
+
+bool parse_node(Alexer *l, Node **node)
+{
+    Alexer_Token t = {0};
+    alexer_get_token(l, &t);
+    if (!alexer_expect_kind(l, t, ALEXER_SYMBOL)) return false;
+    if (alexer_token_text_equal_cstr(t, "random")) {
+        *node = node_loc(t.loc.file_path, t.loc.row, NK_RANDOM);
+    } else if (alexer_token_text_equal_cstr(t, "x")) {
+        *node = node_loc(t.loc.file_path, t.loc.row, NK_X);
+    } else if (alexer_token_text_equal_cstr(t, "y")) {
+        *node = node_loc(t.loc.file_path, t.loc.row, NK_Y);
+    } else if (alexer_token_text_equal_cstr(t, "t")) {
+        *node = node_loc(t.loc.file_path, t.loc.row, NK_T);
+    } else if (alexer_token_text_equal_cstr(t, "sqrt")) {
+        alexer_get_token(l, &t);
+        if (!alexer_expect_punct(l, t, PUNCT_OPAREN)) return false;
+
+        Node *unop;
+        if (!parse_node(l, &unop)) return false;
+        *node = node_unop_loc(t.loc.file_path, t.loc.row, NK_SQRT, unop);
+
+        alexer_get_token(l, &t);
+        if (!alexer_expect_punct(l, t, PUNCT_CPAREN)) return false;
+    } else if (alexer_token_text_equal_cstr(t, "sin")) {
+        alexer_get_token(l, &t);
+        if (!alexer_expect_punct(l, t, PUNCT_OPAREN)) return false;
+
+        Node *unop;
+        if (!parse_node(l, &unop)) return false;
+        *node = node_unop_loc(t.loc.file_path, t.loc.row, NK_SIN, unop);
+
+        alexer_get_token(l, &t);
+        if (!alexer_expect_punct(l, t, PUNCT_CPAREN)) return false;
+    } else if (alexer_token_text_equal_cstr(t, "abs")) {
+        alexer_get_token(l, &t);
+        if (!alexer_expect_punct(l, t, PUNCT_OPAREN)) return false;
+
+        Node *unop;
+        if (!parse_node(l, &unop)) return false;
+        *node = node_unop_loc(t.loc.file_path, t.loc.row, NK_ABS, unop);
+
+        alexer_get_token(l, &t);
+        if (!alexer_expect_punct(l, t, PUNCT_CPAREN)) return false;
+    } else if (alexer_token_text_equal_cstr(t, "add")) {
+        Node *lhs, *rhs;
+        if (!parse_pair(l, &lhs, &rhs)) return false;
+        *node = node_binop_loc(t.loc.file_path, t.loc.row, NK_ADD, lhs, rhs);
+    } else if (alexer_token_text_equal_cstr(t, "mult")) {
+        Node *lhs, *rhs;
+        if (!parse_pair(l, &lhs, &rhs)) return false;
+        *node = node_binop_loc(t.loc.file_path, t.loc.row, NK_MULT, lhs, rhs);
+    } else if (alexer_token_text_equal_cstr(t, "vec3")) {
+        Node *first, *second, *third;
+        if (!parse_triple(l, &first, &second, &third)) return false;
+        *node = node_triple_loc(t.loc.file_path, t.loc.row, first, second, third);
+    } else {
+        *node = node_rule(t);
+    }
+    return true;
+}
+
+bool parse_grammar_branch(Alexer *l, Grammar_Branch *branch)
+{
+    Alexer_Token t = {0};
+    Alexer_State s = alexer_save(l);
+    alexer_get_token(l, &t);
+    while (t.kind == ALEXER_PUNCT && t.punct_index == PUNCT_BAR) {
+        branch->weight += 1;
+        s = alexer_save(l);
+        alexer_get_token(l, &t);
+    }
+    alexer_rewind(l, s);
+
+    if (!parse_node(l, &branch->node)) return false;
+    return true;
+}
+
+bool parse_grammar_branches(Alexer *l, Alexer_Token name, Grammar_Branches *branches)
+{
+    Alexer_Token t = {0};
+    branches->name = name;
+    size_t branch_start[] = {PUNCT_BAR, PUNCT_SEMICOLON};
+    bool quit = false;
+    while (!quit) {
+        Alexer_State s = alexer_save(l);
+        alexer_get_token(l, &t);
+        if (!alexer_expect_one_of_puncts(l, t, branch_start, ARRAY_LEN(branch_start))) return false;
+        switch (t.punct_index) {
+        case PUNCT_BAR: {
+            alexer_rewind(l, s);
+            Grammar_Branch branch = {};
+            if (!parse_grammar_branch(l, &branch)) return false;
+            context_da_append(branches, branch);
+        } break;
+        case PUNCT_SEMICOLON: quit = true; break;
+        default: UNREACHABLE("parse_grammar_branches");
+        }
+    }
+    branches->weight_sum = 0;
+    for (size_t i = 0; i < branches->count; ++i) {
+        branches->weight_sum += branches->items[i].weight;
+    }
+    return true;
+}
+
+bool parse_grammar(Alexer *l, Grammar *grammar)
+{
+    Alexer_Token t = {0};
+    Alexer_Kind top_level_start[] = { ALEXER_SYMBOL, ALEXER_END };
+    bool quit = false;
+    while (!quit) {
+        alexer_get_token(l, &t);
+        if (!alexer_expect_one_of_kinds(l, t, top_level_start, ARRAY_LEN(top_level_start))) return false;
+        switch (t.kind) {
+        case ALEXER_SYMBOL: {
+            Grammar_Branches branches = {0};
+            if (!parse_grammar_branches(l, t, &branches)) return false;
+            context_da_append(grammar, branches);
+        } break;
+        case ALEXER_END: quit = true; break;
+        default: UNREACHABLE("top_level");
+        }
+    }
+    return true;
+}
+
 int main(int argc, char **argv)
 {
     const char *program_name = shift(argv, argc);
@@ -814,13 +1066,27 @@ int main(int argc, char **argv)
     }
 
     if (strcmp(command_name, "gui") == 0) {
-        if (argc > 0) {
-            nob_log(ERROR, "%s does not accept any arguments", command_name);
+        if (argc <= 0) {
+            nob_log(ERROR, "Usage: %s %s <input>", program_name, command_name);
+            nob_log(ERROR, "no input is provided");
             return 1;
         }
 
+        const char *input_path = shift(argv, argc);
+
+        String_Builder src = {0};
+        if (!read_entire_file(input_path, &src)) return 1;
+
+        Alexer l = alexer_create(input_path, src.items, src.count);
+        l.puncts = puncts;
+        l.puncts_count = COUNT_PUNCTS;
+        l.sl_comments = comments;
+        l.sl_comments_count = ARRAY_LEN(comments);
         Grammar grammar = {0};
-        Alexer_Token entry = default_grammar(&grammar);
+        if (!parse_grammar(&l, &grammar)) return 1;
+
+        assert(grammar.count > 0);
+        Alexer_Token entry = grammar.items[0].name;
 
         srand(seed);
         nob_log(INFO, "SEED: %d", seed);
@@ -855,7 +1121,7 @@ int main(int argc, char **argv)
             .format = PIXELFORMAT_UNCOMPRESSED_R8G8B8A8,
         };
         float time = 0.0f;
-        float max_render_length = (2*PI)*4;
+        float max_render_length = (2*PI)*2;
         bool pause = false;
         while (!WindowShouldClose()) {
             float w = GetScreenWidth();
@@ -942,6 +1208,9 @@ int main(int argc, char **argv)
         }
         CloseWindow();
         return 0;
+    }
+
+    if (strcmp(command_name, "parse") == 0) {
     }
 
     nob_log(ERROR, "Unknown command %s", command_name);

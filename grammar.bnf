@@ -1,0 +1,20 @@
+# Entry
+E | vec3(C, C, C)
+  ;
+
+# Term
+A | random
+  | x
+  | y
+  | t
+  | sqrt(add(mult(x, x), mult(y, y)))
+  ;
+
+# Binops
+C ||  A
+  ||| add(C, C)
+  ||| mult(C, C)
+  # ||| sqrt(abs(C))
+  # ||| abs(C)
+  ||| sin(C)
+  ;
