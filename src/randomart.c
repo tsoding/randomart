@@ -1012,6 +1012,7 @@ int main(int argc, char **argv)
     int height = 9*100;
     int fps = 60;
     bool print_func = false;
+    bool def_grammar = false;
 
     while (argc > 0) {
         const char *flag = argv[0];
@@ -1027,6 +1028,8 @@ int main(int argc, char **argv)
             if (!flag_int(&argc, &argv, &fps)) return 1;
         } else if (strcmp(flag, "-print") == 0){
             flag_bool(&argc, &argv, &print_func);
+        } else if (strcmp(flag, "-default") == 0){
+            flag_bool(&argc, &argv, &def_grammar);
         } else {
              break;
         }
@@ -1041,21 +1044,60 @@ int main(int argc, char **argv)
     const char *command_name = shift(argv, argc);
 
     if (strcmp(command_name, "file") == 0) {
-        if (argc <= 0) {
-            nob_log(ERROR, "Usage: %s %s <output-path>", program_name, command_name);
-            nob_log(ERROR, "No output path is provided");
-            return 1;
-        }
-        const char *output_path = shift(argv, argc);
-
-        if (argc > 0) {
-            nob_log(ERROR, "Usage: %s %s <output-path>", program_name, command_name);
-            nob_log(ERROR, "%s accepts only 1 argument", command_name);
-            return 1;
-        }
-
         Grammar grammar = {0};
-        Alexer_Token entry = default_grammar(&grammar);
+        Alexer_Token entry = {0};
+
+        const char *output_path = "";
+        if (!def_grammar){
+            if (argc <= 0) {
+                nob_log(ERROR, "Usage: %s %s <input-path> <output-path>", program_name, command_name);
+                nob_log(ERROR, "No input or output path are provided");
+                return 1;
+            }
+            const char *input_path = shift(argv, argc);
+
+            if (argc <= 0) {
+                nob_log(ERROR, "Usage: %s %s <input-path> <output-path>", program_name, command_name);
+                nob_log(ERROR, "No output path is provided");
+                return 1;
+            }
+            output_path = shift(argv, argc);
+
+            if (argc > 0) {
+                nob_log(ERROR, "Usage: %s %s <input-path> <output-path>", program_name, command_name);
+                nob_log(ERROR, "%s accepts only 2 argument", command_name);
+                return 1;
+            }
+
+            String_Builder src = {0};
+            if (!read_entire_file(input_path, &src)) return 1;
+
+            Alexer l = alexer_create(input_path, src.items, src.count);
+            l.puncts = puncts;
+            l.puncts_count = COUNT_PUNCTS;
+            l.sl_comments = comments;
+            l.sl_comments_count = ARRAY_LEN(comments);
+
+            if (!parse_grammar(&l, &grammar)) return 1;
+
+            assert(grammar.count > 0);
+            entry = grammar.items[0].name;
+        } else {
+            if (argc <= 0) {
+                nob_log(ERROR, "Usage: %s %s <output-path>", program_name, command_name);
+                nob_log(ERROR, "No output path is provided");
+                return 1;
+            }
+            output_path = shift(argv, argc);
+
+            if (argc > 0) {
+                nob_log(ERROR, "Usage: %s %s <output-path>", program_name, command_name);
+                nob_log(ERROR, "%s accepts only 1 argument", command_name);
+                return 1;
+            }
+
+            entry = default_grammar(&grammar);
+        }
 
         srand(seed);
         nob_log(INFO, "SEED: %d", seed);
@@ -1080,27 +1122,35 @@ int main(int argc, char **argv)
     }
 
     if (strcmp(command_name, "gui") == 0) {
-        if (argc <= 0) {
-            nob_log(ERROR, "Usage: %s %s <input>", program_name, command_name);
-            nob_log(ERROR, "no input is provided");
-            return 1;
-        }
-
-        const char *input_path = shift(argv, argc);
-
-        String_Builder src = {0};
-        if (!read_entire_file(input_path, &src)) return 1;
-
-        Alexer l = alexer_create(input_path, src.items, src.count);
-        l.puncts = puncts;
-        l.puncts_count = COUNT_PUNCTS;
-        l.sl_comments = comments;
-        l.sl_comments_count = ARRAY_LEN(comments);
         Grammar grammar = {0};
-        if (!parse_grammar(&l, &grammar)) return 1;
+        Alexer_Token entry = {0};
 
-        assert(grammar.count > 0);
-        Alexer_Token entry = grammar.items[0].name;
+        if (!def_grammar) {
+            if (argc <= 0) {
+                nob_log(ERROR, "Usage: %s %s <input>", program_name, command_name);
+                nob_log(ERROR, "no input is provided");
+                return 1;
+            }
+            const char *input_path = shift(argv, argc);
+
+            String_Builder src = {0};
+            if (!read_entire_file(input_path, &src)) return 1;
+
+            Alexer l = alexer_create(input_path, src.items, src.count);
+            l.puncts = puncts;
+            l.puncts_count = COUNT_PUNCTS;
+            l.sl_comments = comments;
+            l.sl_comments_count = ARRAY_LEN(comments);
+
+            if (!parse_grammar(&l, &grammar)) return 1;
+
+            assert(grammar.count > 0);
+            entry = grammar.items[0].name;
+        } else {
+            if (argc > 0) nob_log(WARNING, "With -default %s doesn't accept any other argument", command_name);
+
+            entry = default_grammar(&grammar);
+        }
 
         srand(seed);
         nob_log(INFO, "SEED: %d", seed);
