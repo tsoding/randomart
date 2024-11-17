@@ -22,6 +22,7 @@ static Arena *context_arena = &static_arena;
 typedef enum {
     NK_X,
     NK_Y,
+    NK_S,
     NK_T,
     NK_RANDOM,
     NK_RULE,
@@ -40,10 +41,11 @@ typedef enum {
     COUNT_NK,
 } Node_Kind;
 
-static_assert(COUNT_NK == 16, "Amount of nodes have changed");
+static_assert(COUNT_NK == 17, "Amount of nodes have changed");
 const char *nk_names[COUNT_NK] = {
     [NK_X]       = "x",
     [NK_Y]       = "y",
+    [NK_S]       = "s",
     [NK_T]       = "t",
     [NK_RULE]    = "rule",
     [NK_RANDOM]  = "random",
@@ -146,6 +148,7 @@ Node *node_boolean_loc(const char *file, int line, bool boolean)
 
 #define node_x()      node_loc(__FILE__, __LINE__, NK_X)
 #define node_y()      node_loc(__FILE__, __LINE__, NK_Y)
+#define node_s()      node_loc(__FILE__, __LINE__, NK_S)
 #define node_t()      node_loc(__FILE__, __LINE__, NK_T)
 #define node_random() node_loc(__FILE__, __LINE__, NK_RANDOM)
 
@@ -184,6 +187,9 @@ void node_print(Node *node)
         break;
     case NK_Y:
         printf("y");
+        break;
+    case NK_S:
+        printf("s");
         break;
     case NK_T:
         printf("t");
@@ -305,11 +311,12 @@ bool expect_triple(Node *expr)
     return true;
 }
 
-Node *eval(Node *expr, float x, float y, float t)
+Node *eval(Node *expr, float x, float y, float s, float t)
 {
     switch (expr->kind) {
     case NK_X:      return node_number_loc(expr->file, expr->line, x);
     case NK_Y:      return node_number_loc(expr->file, expr->line, y);
+    case NK_S:      return node_number_loc(expr->file, expr->line, s);
     case NK_T:      return node_number_loc(expr->file, expr->line, t);
     case NK_BOOLEAN:
     case NK_NUMBER: return expr;
@@ -319,75 +326,75 @@ Node *eval(Node *expr, float x, float y, float t)
         return NULL;
     }
     case NK_SQRT: {
-        Node *rhs = eval(expr->as.unop, x, y, t);
+        Node *rhs = eval(expr->as.unop, x, y, s, t);
         if (!rhs) return NULL;
         if (!expect_number(rhs)) return NULL;
         return node_number_loc(expr->file, expr->line, sqrtf(rhs->as.number));
     }
     case NK_SIN: {
-        Node *rhs = eval(expr->as.unop, x, y, t);
+        Node *rhs = eval(expr->as.unop, x, y, s, t);
         if (!rhs) return NULL;
         if (!expect_number(rhs)) return NULL;
         return node_number_loc(expr->file, expr->line, sinf(rhs->as.number));
     }
     case NK_ABS: {
-        Node *rhs = eval(expr->as.unop, x, y, t);
+        Node *rhs = eval(expr->as.unop, x, y, s, t);
         if (!rhs) return NULL;
         if (!expect_number(rhs)) return NULL;
         return node_number_loc(expr->file, expr->line, fabsf(rhs->as.number));
     }
     case NK_ADD: {
-        Node *lhs = eval(expr->as.binop.lhs, x, y, t);
+        Node *lhs = eval(expr->as.binop.lhs, x, y, s, t);
         if (!lhs) return NULL;
         if (!expect_number(lhs)) return NULL;
-        Node *rhs = eval(expr->as.binop.rhs, x, y, t);
+        Node *rhs = eval(expr->as.binop.rhs, x, y, s, t);
         if (!rhs) return NULL;
         if (!expect_number(rhs)) return NULL;
         return node_number_loc(expr->file, expr->line, lhs->as.number + rhs->as.number);
     }
     case NK_MULT: {
-        Node *lhs = eval(expr->as.binop.lhs, x, y, t);
+        Node *lhs = eval(expr->as.binop.lhs, x, y, s, t);
         if (!lhs) return NULL;
         if (!expect_number(lhs)) return NULL;
-        Node *rhs = eval(expr->as.binop.rhs, x, y, t);
+        Node *rhs = eval(expr->as.binop.rhs, x, y, s, t);
         if (!rhs) return NULL;
         if (!expect_number(rhs)) return NULL;
         return node_number_loc(expr->file, expr->line, lhs->as.number * rhs->as.number);
     }
     case NK_MOD: {
-        Node *lhs = eval(expr->as.binop.lhs, x, y, t);
+        Node *lhs = eval(expr->as.binop.lhs, x, y, s, t);
         if (!lhs) return NULL;
         if (!expect_number(lhs)) return NULL;
-        Node *rhs = eval(expr->as.binop.rhs, x, y, t);
+        Node *rhs = eval(expr->as.binop.rhs, x, y, s, t);
         if (!rhs) return NULL;
         if (!expect_number(rhs)) return NULL;
         return node_number_loc(expr->file, expr->line, fmodf(lhs->as.number, rhs->as.number));
     }
     case NK_GT: {
-        Node *lhs = eval(expr->as.binop.lhs, x, y, t);
+        Node *lhs = eval(expr->as.binop.lhs, x, y, s, t);
         if (!lhs) return NULL;
         if (!expect_number(lhs)) return NULL;
-        Node *rhs = eval(expr->as.binop.rhs, x, y, t);
+        Node *rhs = eval(expr->as.binop.rhs, x, y, s, t);
         if (!rhs) return NULL;
         if (!expect_number(rhs)) return NULL;
         return node_boolean_loc(expr->file, expr->line, lhs->as.number > rhs->as.number);
     }
     case NK_TRIPLE: {
-        Node *first = eval(expr->as.triple.first, x, y, t);
+        Node *first = eval(expr->as.triple.first, x, y, s, t);
         if (!first) return NULL;
-        Node *second = eval(expr->as.triple.second, x, y, t);
+        Node *second = eval(expr->as.triple.second, x, y, s, t);
         if (!second) return NULL;
-        Node *third = eval(expr->as.triple.third, x, y, t);
+        Node *third = eval(expr->as.triple.third, x, y, s, t);
         if (!third) return NULL;
         return node_triple_loc(expr->file, expr->line, first, second, third);
     }
     case NK_IF: {
-        Node *cond = eval(expr->as.iff.cond, x, y, t);
+        Node *cond = eval(expr->as.iff.cond, x, y, s, t);
         if (!cond) return NULL;
         if (!expect_boolean(cond)) return NULL;
-        Node *then = eval(expr->as.iff.then, x, y, t);
+        Node *then = eval(expr->as.iff.then, x, y, s, t);
         if (!then) return NULL;
-        Node *elze = eval(expr->as.iff.elze, x, y, t);
+        Node *elze = eval(expr->as.iff.elze, x, y, s, t);
         if (!elze) return NULL;
         return cond->as.boolean ? then : elze;
     }
@@ -396,9 +403,9 @@ Node *eval(Node *expr, float x, float y, float t)
     }
 }
 
-bool eval_func(Node *f, float x, float y, float t, Vector3 *c)
+bool eval_func(Node *f, float x, float y, float s, float t, Vector3 *c)
 {
-    Node *result = eval(f, x, y, t);
+    Node *result = eval(f, x, y, s, t);
     if (!result) return false;
     if (!expect_triple(result)) return false;
     if (!expect_number(result->as.triple.first)) return false;
@@ -429,7 +436,7 @@ bool render_image(Image image, Node *f)
         for (int x = 0; x < image.width; ++x) {
             float nx = (float)x/image.width*2.0f - 1;
             Vector3 c;
-            if (!eval_func(f, nx, ny, 0.0, &c)) return_defer(false);
+            if (!eval_func(f, nx, ny, 0.0, 0.0, &c)) return_defer(false);
             arena_reset(&temp_arena);
             size_t index = y*image.width + x;
             pixels[index].r = clamp_float((c.x + 1)/2*255, 0, 255);
@@ -492,6 +499,7 @@ Node *gen_node(Grammar grammar, Node *node, int depth)
     switch (node->kind) {
     case NK_X:
     case NK_Y:
+    case NK_S:
     case NK_T:
     case NK_NUMBER:
     case NK_BOOLEAN:
@@ -643,6 +651,10 @@ Alexer_Token default_grammar(Grammar *grammar)
         .weight = 1,
     }));
     context_da_append(&branches, ((Grammar_Branch) {
+        .node = node_s(),
+        .weight = 1,
+    }));
+    context_da_append(&branches, ((Grammar_Branch) {
         .node = node_t(),
         .weight = 1,
     }));
@@ -677,6 +689,7 @@ bool compile_node_into_fragment_expression(String_Builder *sb, Node *expr, size_
     switch (expr->kind) {
     case NK_X: sb_append_cstr(sb, "x"); break;
     case NK_Y: sb_append_cstr(sb, "y"); break;
+    case NK_S: sb_append_cstr(sb, "s"); break;
     case NK_T: sb_append_cstr(sb, "t"); break;
 
     case NK_RULE:
@@ -782,6 +795,7 @@ bool compile_node_func_into_fragment_shader(String_Builder *sb, Node *f)
     sb_append_cstr(sb, "{\n");
     sb_append_cstr(sb, "    float x = fragTexCoord.x*2.0 - 1.0;\n");
     sb_append_cstr(sb, "    float y = fragTexCoord.y*2.0 - 1.0;\n");
+    sb_append_cstr(sb, "    float s = cos(time);\n");
     sb_append_cstr(sb, "    float t = sin(time);\n");
     sb_append_cstr(sb, "    finalColor = map_color(");
     if (!compile_node_into_fragment_expression(sb, f, 0)) return false;
@@ -878,6 +892,8 @@ bool parse_node(Alexer *l, Node **node)
         *node = node_loc(t.loc.file_path, t.loc.row, NK_X);
     } else if (alexer_token_text_equal_cstr(t, "y")) {
         *node = node_loc(t.loc.file_path, t.loc.row, NK_Y);
+    } else if (alexer_token_text_equal_cstr(t, "s")) {
+        *node = node_loc(t.loc.file_path, t.loc.row, NK_S);
     } else if (alexer_token_text_equal_cstr(t, "t")) {
         *node = node_loc(t.loc.file_path, t.loc.row, NK_T);
     } else if (alexer_token_text_equal_cstr(t, "sqrt")) {

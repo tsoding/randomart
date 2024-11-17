@@ -6,6 +6,7 @@ E | vec3(C, C, C)
 A | random
   | x
   | y
+  | s
   | t
   | abs(x)
   | abs(y)
