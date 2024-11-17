@@ -801,6 +801,12 @@ bool flag_int(int *argc, char ***argv, int *value)
     return true;
 }
 
+void flag_bool(int *argc, char ***argv, bool *value)
+{
+    shift(*argv, *argc);
+    *value = true;
+}
+
 typedef enum {
     PUNCT_BAR,
     PUNCT_OPAREN,
@@ -1005,6 +1011,7 @@ int main(int argc, char **argv)
     int width = 16*100;
     int height = 9*100;
     int fps = 60;
+    bool print_func = false;
 
     while (argc > 0) {
         const char *flag = argv[0];
@@ -1018,8 +1025,10 @@ int main(int argc, char **argv)
             if (!flag_int(&argc, &argv, &height)) return 1;
         } else if (strcmp(flag, "-fps") == 0) {
             if (!flag_int(&argc, &argv, &fps)) return 1;
+        } else if (strcmp(flag, "-print") == 0){
+            flag_bool(&argc, &argv, &print_func);
         } else {
-            break;
+             break;
         }
     }
 
@@ -1059,6 +1068,8 @@ int main(int argc, char **argv)
             nob_log(ERROR, "The crappy generation process could not terminate");
             return 1;
         }
+
+        if (print_func) node_print_ln(f);
 
         Image image = GenImageColor(width, height, BLANK);
         nob_log(INFO, "Generating image...");
@@ -1103,6 +1114,8 @@ int main(int argc, char **argv)
             nob_log(ERROR, "The crappy generation process could not terminate");
             return 1;
         }
+        
+        if (print_func) node_print_ln(f);
 
         String_Builder sb = {0};
         if (!compile_node_func_into_fragment_shader(&sb, f)) return 1;
