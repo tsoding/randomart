@@ -824,6 +824,20 @@ const char *comments[] = {
 
 bool parse_node(Alexer *l, Node **node);
 
+bool parse_single(Alexer *l, Node **first)
+{
+    Alexer_Token t = {0};
+    alexer_get_token(l, &t);
+    if (!alexer_expect_id(l, t, ALEXER_ID(ALEXER_PUNCT, PUNCT_OPAREN))) return false;
+
+    if (!parse_node(l, first)) return false;
+
+    alexer_get_token(l, &t);
+    if (!alexer_expect_id(l, t, ALEXER_ID(ALEXER_PUNCT, PUNCT_CPAREN))) return false;
+
+    return true;
+}
+
 bool parse_pair(Alexer *l, Node **first, Node **second)
 {
     Alexer_Token t = {0};
@@ -881,35 +895,17 @@ bool parse_node(Alexer *l, Node **node)
     } else if (alexer_token_text_equal_cstr(t, "t")) {
         *node = node_loc(t.loc.file_path, t.loc.row, NK_T);
     } else if (alexer_token_text_equal_cstr(t, "sqrt")) {
-        alexer_get_token(l, &t);
-        if (!alexer_expect_id(l, t, ALEXER_ID(ALEXER_PUNCT, PUNCT_OPAREN))) return false;
-
-        Node *unop;
-        if (!parse_node(l, &unop)) return false;
-        *node = node_unop_loc(t.loc.file_path, t.loc.row, NK_SQRT, unop);
-
-        alexer_get_token(l, &t);
-        if (!alexer_expect_id(l, t, ALEXER_ID(ALEXER_PUNCT, PUNCT_CPAREN))) return false;
+        Node *expr;
+        if (!parse_single(l, &expr)) return false;
+        *node = node_unop_loc(t.loc.file_path, t.loc.row, NK_SQRT, expr);
     } else if (alexer_token_text_equal_cstr(t, "sin")) {
-        alexer_get_token(l, &t);
-        if (!alexer_expect_id(l, t, ALEXER_ID(ALEXER_PUNCT, PUNCT_OPAREN))) return false;
-
-        Node *unop;
-        if (!parse_node(l, &unop)) return false;
-        *node = node_unop_loc(t.loc.file_path, t.loc.row, NK_SIN, unop);
-
-        alexer_get_token(l, &t);
-        if (!alexer_expect_id(l, t, ALEXER_ID(ALEXER_PUNCT, PUNCT_CPAREN))) return false;
+        Node *expr;
+        if (!parse_single(l, &expr)) return false;
+        *node = node_unop_loc(t.loc.file_path, t.loc.row, NK_SIN, expr);
     } else if (alexer_token_text_equal_cstr(t, "abs")) {
-        alexer_get_token(l, &t);
-        if (!alexer_expect_id(l, t, ALEXER_ID(ALEXER_PUNCT, PUNCT_OPAREN))) return false;
-
-        Node *unop;
-        if (!parse_node(l, &unop)) return false;
-        *node = node_unop_loc(t.loc.file_path, t.loc.row, NK_ABS, unop);
-
-        alexer_get_token(l, &t);
-        if (!alexer_expect_id(l, t, ALEXER_ID(ALEXER_PUNCT, PUNCT_CPAREN))) return false;
+        Node *expr;
+        if (!parse_single(l, &expr)) return false;
+        *node = node_unop_loc(t.loc.file_path, t.loc.row, NK_ABS, expr);
     } else if (alexer_token_text_equal_cstr(t, "add")) {
         Node *lhs, *rhs;
         if (!parse_pair(l, &lhs, &rhs)) return false;
