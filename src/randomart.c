@@ -16,8 +16,6 @@
 #include "alexer.h"
 
 static Arena static_arena = {0};
-static Arena *context_arena = &static_arena;
-#define context_da_append(da, x) arena_da_append(context_arena, (da), (x))
 
 typedef enum {
     NK_X,
@@ -98,7 +96,7 @@ struct Node {
 
 Node *node_loc(const char *file, int line, Node_Kind kind)
 {
-    Node *node = arena_alloc(context_arena, sizeof(Node));
+    Node *node = arena_alloc(&static_arena, sizeof(Node));
     node->kind = kind;
     node->file = file;
     node->line = line;
@@ -142,19 +140,6 @@ Node *node_boolean_loc(const char *file, int line, bool boolean)
     node->as.boolean = boolean;
     return node;
 }
-#define node_boolean(boolean) node_boolean_loc(__FILE__, __LINE__, boolean)
-
-#define node_x()      node_loc(__FILE__, __LINE__, NK_X)
-#define node_y()      node_loc(__FILE__, __LINE__, NK_Y)
-#define node_t()      node_loc(__FILE__, __LINE__, NK_T)
-#define node_random() node_loc(__FILE__, __LINE__, NK_RANDOM)
-
-#define node_sqrt(unop)  node_unop_loc(__FILE__, __LINE__, NK_SQRT, unop)
-
-#define node_add(lhs, rhs)  node_binop_loc(__FILE__, __LINE__, NK_ADD, lhs, rhs)
-#define node_mult(lhs, rhs) node_binop_loc(__FILE__, __LINE__, NK_MULT, lhs, rhs)
-#define node_mod(lhs, rhs)  node_binop_loc(__FILE__, __LINE__, NK_MOD, lhs, rhs)
-#define node_gt(lhs, rhs)   node_binop_loc(__FILE__, __LINE__, NK_GT, lhs, rhs)
 
 Node *node_triple_loc(const char *file, int line, Node *first, Node *second, Node *third)
 {
@@ -164,7 +149,6 @@ Node *node_triple_loc(const char *file, int line, Node *first, Node *second, Nod
     node->as.triple.third  = third;
     return node;
 }
-#define node_triple(first, second, third) node_triple_loc(__FILE__, __LINE__, first, second, third)
 
 Node *node_if_loc(const char *file, int line, Node *cond, Node *then, Node *elze)
 {
@@ -174,7 +158,6 @@ Node *node_if_loc(const char *file, int line, Node *cond, Node *then, Node *elze
     node->as.iff.elze = elze;
     return node;
 }
-#define node_if(cond, then, elze) node_if_loc(__FILE__, __LINE__, cond, then, elze)
 
 void node_print(Node *node)
 {
@@ -276,145 +259,6 @@ Vector3 cool(float x, float y)
     if (x*y >= 0) return (Vector3){x, y, 1};
     float r = fmodf(x, y);
     return (Vector3){r, r, r};
-}
-
-bool expect_number(Node *expr)
-{
-    if (expr->kind != NK_NUMBER) {
-        printf("%s:%d: ERROR: expected number\n", expr->file, expr->line);
-        return false;
-    }
-    return true;
-}
-
-bool expect_boolean(Node *expr)
-{
-    if (expr->kind != NK_BOOLEAN) {
-        printf("%s:%d: ERROR: expected boolean\n", expr->file, expr->line);
-        return false;
-    }
-    return true;
-}
-
-bool expect_triple(Node *expr)
-{
-    if (expr->kind != NK_TRIPLE) {
-        printf("%s:%d: ERROR: expected triple\n", expr->file, expr->line);
-        return false;
-    }
-    return true;
-}
-
-Node *eval(Node *expr, float x, float y, float t)
-{
-    switch (expr->kind) {
-    case NK_X:      return node_number_loc(expr->file, expr->line, x);
-    case NK_Y:      return node_number_loc(expr->file, expr->line, y);
-    case NK_T:      return node_number_loc(expr->file, expr->line, t);
-    case NK_BOOLEAN:
-    case NK_NUMBER: return expr;
-    case NK_RANDOM:
-    case NK_RULE: {
-        printf("%s:%d: ERROR: cannot evaluate a node that valid only for grammar definitions\n", expr->file, expr->line);
-        return NULL;
-    }
-    case NK_SQRT: {
-        Node *rhs = eval(expr->as.unop, x, y, t);
-        if (!rhs) return NULL;
-        if (!expect_number(rhs)) return NULL;
-        return node_number_loc(expr->file, expr->line, sqrtf(rhs->as.number));
-    }
-    case NK_SIN: {
-        Node *rhs = eval(expr->as.unop, x, y, t);
-        if (!rhs) return NULL;
-        if (!expect_number(rhs)) return NULL;
-        return node_number_loc(expr->file, expr->line, sinf(rhs->as.number));
-    }
-    case NK_ABS: {
-        Node *rhs = eval(expr->as.unop, x, y, t);
-        if (!rhs) return NULL;
-        if (!expect_number(rhs)) return NULL;
-        return node_number_loc(expr->file, expr->line, fabsf(rhs->as.number));
-    }
-    case NK_ADD: {
-        Node *lhs = eval(expr->as.binop.lhs, x, y, t);
-        if (!lhs) return NULL;
-        if (!expect_number(lhs)) return NULL;
-        Node *rhs = eval(expr->as.binop.rhs, x, y, t);
-        if (!rhs) return NULL;
-        if (!expect_number(rhs)) return NULL;
-        return node_number_loc(expr->file, expr->line, lhs->as.number + rhs->as.number);
-    }
-    case NK_MULT: {
-        Node *lhs = eval(expr->as.binop.lhs, x, y, t);
-        if (!lhs) return NULL;
-        if (!expect_number(lhs)) return NULL;
-        Node *rhs = eval(expr->as.binop.rhs, x, y, t);
-        if (!rhs) return NULL;
-        if (!expect_number(rhs)) return NULL;
-        return node_number_loc(expr->file, expr->line, lhs->as.number * rhs->as.number);
-    }
-    case NK_MOD: {
-        Node *lhs = eval(expr->as.binop.lhs, x, y, t);
-        if (!lhs) return NULL;
-        if (!expect_number(lhs)) return NULL;
-        Node *rhs = eval(expr->as.binop.rhs, x, y, t);
-        if (!rhs) return NULL;
-        if (!expect_number(rhs)) return NULL;
-        return node_number_loc(expr->file, expr->line, fmodf(lhs->as.number, rhs->as.number));
-    }
-    case NK_GT: {
-        Node *lhs = eval(expr->as.binop.lhs, x, y, t);
-        if (!lhs) return NULL;
-        if (!expect_number(lhs)) return NULL;
-        Node *rhs = eval(expr->as.binop.rhs, x, y, t);
-        if (!rhs) return NULL;
-        if (!expect_number(rhs)) return NULL;
-        return node_boolean_loc(expr->file, expr->line, lhs->as.number > rhs->as.number);
-    }
-    case NK_TRIPLE: {
-        Node *first = eval(expr->as.triple.first, x, y, t);
-        if (!first) return NULL;
-        Node *second = eval(expr->as.triple.second, x, y, t);
-        if (!second) return NULL;
-        Node *third = eval(expr->as.triple.third, x, y, t);
-        if (!third) return NULL;
-        return node_triple_loc(expr->file, expr->line, first, second, third);
-    }
-    case NK_IF: {
-        Node *cond = eval(expr->as.iff.cond, x, y, t);
-        if (!cond) return NULL;
-        if (!expect_boolean(cond)) return NULL;
-        Node *then = eval(expr->as.iff.then, x, y, t);
-        if (!then) return NULL;
-        Node *elze = eval(expr->as.iff.elze, x, y, t);
-        if (!elze) return NULL;
-        return cond->as.boolean ? then : elze;
-    }
-    case COUNT_NK:
-    default: UNREACHABLE("eval");
-    }
-}
-
-bool eval_func(Node *f, float x, float y, float t, Vector3 *c)
-{
-    Node *result = eval(f, x, y, t);
-    if (!result) return false;
-    if (!expect_triple(result)) return false;
-    if (!expect_number(result->as.triple.first)) return false;
-    if (!expect_number(result->as.triple.second)) return false;
-    if (!expect_number(result->as.triple.third)) return false;
-    c->x = result->as.triple.first->as.number;
-    c->y = result->as.triple.second->as.number;
-    c->z = result->as.triple.third->as.number;
-    return true;
-}
-
-float clamp_float(float v, float lo, float hi)
-{
-    if (v < lo) return lo;
-    if (v > hi) return hi;
-    return v;
 }
 
 #define node_print_ln(node) (node_print(node), printf("\n"))
@@ -572,7 +416,7 @@ void grammar_append_branches(Grammar *grammar, Grammar_Branches *branches, Alexe
     for (size_t i = 0; i < branches->count; ++i) {
         branches->weight_sum += branches->items[i].weight;
     }
-    context_da_append(grammar, *branches);
+    arena_da_append(&static_arena, grammar, *branches);
     memset(branches, 0, sizeof(*branches));
 }
 
@@ -590,59 +434,6 @@ Alexer_Token symbol_impl(const char *file, int line, const char *name_cstr)
         .begin = name_cstr,
         .end = name_cstr + strlen(name_cstr),
     };
-}
-
-// TODO: load grammar from file
-Alexer_Token default_grammar(Grammar *grammar)
-{
-    Grammar_Branches branches = {0};
-
-    context_da_append(&branches, ((Grammar_Branch) {
-        .node = node_triple(node_rule(SYMBOL("c")), node_rule(SYMBOL("c")), node_rule(SYMBOL("c"))),
-        .weight = 1,
-    }));
-    grammar_append_branches(grammar, &branches, SYMBOL("e"));
-
-    context_da_append(&branches, ((Grammar_Branch) {
-        .node = node_random(),
-        .weight = 1,
-    }));
-    context_da_append(&branches, ((Grammar_Branch) {
-        .node = node_x(),
-        .weight = 1,
-    }));
-    context_da_append(&branches, ((Grammar_Branch) {
-        .node = node_y(),
-        .weight = 1,
-    }));
-    context_da_append(&branches, ((Grammar_Branch) {
-        .node = node_t(),
-        .weight = 1,
-    }));
-    context_da_append(&branches, ((Grammar_Branch) {
-        .node = node_sqrt(
-            node_add(
-            node_add(node_mult(node_x(), node_x()),
-                     node_mult(node_y(), node_y())),
-                     node_mult(node_t(), node_t()))),
-        .weight = 1,
-    }));
-    grammar_append_branches(grammar, &branches, SYMBOL("a"));
-
-    context_da_append(&branches, ((Grammar_Branch) {
-        .node = node_rule(SYMBOL("a")),
-        .weight = 2,
-    }));
-    context_da_append(&branches, ((Grammar_Branch) {
-        .node = node_add(node_rule(SYMBOL("c")), node_rule(SYMBOL("c"))),
-        .weight = 3,
-    }));
-    context_da_append(&branches, ((Grammar_Branch) {
-        .node = node_mult(node_rule(SYMBOL("c")), node_rule(SYMBOL("c"))),
-        .weight = 3,
-    }));
-    grammar_append_branches(grammar, &branches, SYMBOL("c"));
-    return SYMBOL("e");
 }
 
 bool compile_node_into_fragment_expression(String_Builder *sb, Node *expr, size_t level)
@@ -763,7 +554,7 @@ bool compile_node_func_into_fragment_shader(String_Builder *sb, Node *f)
     return true;
 }
 
-bool render_image(Image *image, Node *f, int width, int height)
+bool render_image(Image *image, Node *f, int width, int height, float t)
 {
     String_Builder sb = {0};
     if (!compile_node_func_into_fragment_shader(&sb, f)) return false;
@@ -780,7 +571,6 @@ bool render_image(Image *image, Node *f, int width, int height)
         .mipmaps = 1,
         .format = PIXELFORMAT_UNCOMPRESSED_R8G8B8A8,
     };
-    const float t = 0.0f;
     BeginTextureMode(screen);
         BeginShaderMode(shader);
             SetShaderValue(shader, time_loc, &t, SHADER_UNIFORM_FLOAT);
@@ -968,7 +758,7 @@ bool parse_grammar_branches(Alexer *l, Alexer_Token name, Grammar_Branches *bran
             alexer_rewind(l, s);
             Grammar_Branch branch = {};
             if (!parse_grammar_branch(l, &branch)) return false;
-            context_da_append(branches, branch);
+            arena_da_append(&static_arena, branches, branch);
         } break;
         case ALEXER_ID(ALEXER_PUNCT, PUNCT_SEMICOLON): quit = true; break;
         default: UNREACHABLE("parse_grammar_branches");
@@ -993,7 +783,7 @@ bool parse_grammar(Alexer *l, Grammar *grammar)
         case ALEXER_SYMBOL: {
             Grammar_Branches branches = {0};
             if (!parse_grammar_branches(l, t, &branches)) return false;
-            context_da_append(grammar, branches);
+            arena_da_append(&static_arena, grammar, branches);
         } break;
         case ALEXER_END: quit = true; break;
         default: UNREACHABLE("top_level");
@@ -1078,7 +868,7 @@ int main(int argc, char **argv)
 
         Image image;
         nob_log(INFO, "Generating image...");
-        if (!render_image(&image, f, width, height)) return 1;
+        if (!render_image(&image, f, width, height, 0.0f)) return 1;
         if (!ExportImage(image, output_path)) return 1;
 
         return 0;
