@@ -1083,6 +1083,7 @@ int main(int argc, char **argv)
 
         const char *input_path = shift(argv, argc);
 
+    GUI:
         String_Builder src = {0};
         if (!read_entire_file(input_path, &src)) return 1;
 
@@ -1144,17 +1145,19 @@ int main(int argc, char **argv)
         float y_zoom = 1;
         float amp = 1;
         float freq = 1;
+        bool restart = false;
 
         printf("==============================================================================================\n"
-               "\tUse arrow     keys to MOVE around\n"
-               "\tUse <WASD>   keys to ZOOM around\n"
-               "\tUse <GH>     keys to ZOOM uniformly\n"
-               "\tUse <IK>     keys to adjust AMPLITUDE (t variable)\n"
-               "\tUse <JL>     keys to adjust FREQUENCY (t variable)\n"
+               "\tUse <↑←↓→>   key to MOVE around\n"
+               "\tUse <WASD>   key to ZOOM around\n"
+               "\tUse <GH>     key to ZOOM uniformly\n"
+               "\tUse <IK>     key to adjust AMPLITUDE (t variable)\n"
+               "\tUse <JL>     key to adjust FREQUENCY (t variable)\n"
                "\tUse <O>      key to set everything to default\n"
                "\tUse <Space>  key to PAUSE\n"
                "\tUse <QE>     key to adjust the TIME (only works in pause)\n"
                "\tUse <?=>     key to get INFORMATION\n"
+               "\tUse <N>      key to start a new run\n"
                "==============================================================================================\n");
         while (!WindowShouldClose()) {
             float w = GetScreenWidth();
@@ -1182,7 +1185,10 @@ int main(int argc, char **argv)
                 if (pause && IsKeyPressed(KEY_E)) {
                   time += 0.5 * dt;
                 }
-
+                if (IsKeyPressed(KEY_N)) {
+                  restart = true;
+                  break;
+                }
                 if (IsKeyPressed(KEY_R)) {
                     ffmpeg = ffmpeg_start_rendering(width, height, fps);
                     time = 0;
@@ -1200,7 +1206,7 @@ int main(int argc, char **argv)
                   freq = 1;
                 }
                 if (IsKeyPressed(KEY_EQUAL) || GetCharPressed() == '?') {
-                  printf("==============================================================================================\n"
+                  printf("==============================================================================================\n");
  
                   printf("pause   :  %s\n",pause ? "true" : "false");
                   printf("time    : %5.2lf\n",time);
@@ -1215,19 +1221,21 @@ int main(int argc, char **argv)
 
                   printf("seed    :   %d\n\n\n",seed);
 
-                         "\tUse arrow     keys to MOVE around\n"
-                         "\tUse <W|A|S|D> keys to ZOOM around\n"
-                         "\tUse <G|H>     keys to ZOOM uniformly\n"
-                         "\tUse <I|K>     keys to adjust AMPLITUDE (t variable)\n"
-                         "\tUse <J|L>     keys to adjust FREQUENCY (t variable)\n"
-                         "\tUse <O>       key to set everything to default\n"
-                         "\tUse <Space>   key to PAUSE\n"
-                         "\tUse <Q|E>     key to adjust the TIME (only works in pause)\n"
-                         "\tUse <?|=>     key to get INFORMATION\n"
-               "==============================================================================================\n");
-                  
-                }
+                  printf(
+                         "\tUse <↑←↓→>   key to MOVE around\n"
+                         "\tUse <WASD>   key to ZOOM around\n"
+                         "\tUse <GH>     key to ZOOM uniformly\n"
+                         "\tUse <IK>     key to adjust AMPLITUDE (t variable)\n"
+                         "\tUse <JL>     key to adjust FREQUENCY (t variable)\n"
+                         "\tUse <O>      key to set everything to default\n"
+                         "\tUse <Space>  key to PAUSE\n"
+                         "\tUse <QE>     key to adjust the TIME (only works in pause)\n"
+                         "\tUse <?=>     key to get INFORMATION\n"
+                         "\tUse <N>      key to start a new run\n"
+                         "==============================================================================================\n");
 
+                }
+                
 
 
 
@@ -1342,6 +1350,10 @@ int main(int argc, char **argv)
             EndDrawing();
         }
         CloseWindow();
+        if (restart){
+          seed ^= seed >> 3 ;
+          goto GUI;
+        }
         return 0;
     }
 
