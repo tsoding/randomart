@@ -30,6 +30,13 @@ typedef enum {
     NK_SQRT,
     NK_ABS,
     NK_SIN,
+    NK_COS,
+    NK_EXP,
+    NK_LN,
+    NK_MUL_INV,
+    NK_ADD_INV,
+    
+    
     NK_ADD,
     NK_MULT,
     NK_MOD,
@@ -40,7 +47,7 @@ typedef enum {
     COUNT_NK,
 } Node_Kind;
 
-static_assert(COUNT_NK == 16, "Amount of nodes have changed");
+static_assert(COUNT_NK == 21, "Amount of nodes have changed");
 const char *nk_names[COUNT_NK] = {
     [NK_X]       = "x",
     [NK_Y]       = "y",
@@ -58,6 +65,12 @@ const char *nk_names[COUNT_NK] = {
     [NK_GT]      = "gt",
     [NK_TRIPLE]  = "triple",
     [NK_IF]      = "if",
+    [NK_COS]     = "cos",
+    [NK_EXP]     = "exp",
+    [NK_LN]      = "ln",
+    [NK_MUL_INV] = "mul_inv",
+    [NK_ADD_INV] = "add_inv",
+    
 };
 
 typedef struct Node Node;
@@ -249,6 +262,32 @@ void node_print(Node *node)
         node_print(node->as.unop);
         printf(")");
         break;
+    case NK_COS:
+      printf("cos(");
+      node_print(node->as.unop);
+      printf(")");
+      break;
+    case NK_EXP:
+      printf("exp(");
+      node_print(node->as.unop);
+      printf(")");
+      break;
+    case NK_LN:
+      printf("ln(");
+      node_print(node->as.unop);
+      printf(")");
+      break;
+    case NK_MUL_INV:
+      printf("mul_inv(");
+      node_print(node->as.unop);
+      printf(")");
+      break;
+    case NK_ADD_INV:
+      printf("add_inv(");
+      node_print(node->as.unop);
+      printf(")");
+      break;
+    
     case NK_ABS:
         printf("abs(");
         node_print(node->as.unop);
@@ -329,6 +368,36 @@ Node *eval(Node *expr, float x, float y, float t)
         if (!rhs) return NULL;
         if (!expect_number(rhs)) return NULL;
         return node_number_loc(expr->file, expr->line, sinf(rhs->as.number));
+    }
+    case NK_COS: {
+      Node *rhs = eval(expr->as.unop, x, y, t);
+      if (!rhs) return NULL;
+      if (!expect_number(rhs)) return NULL;
+      return node_number_loc(expr->file, expr->line, cosf(rhs->as.number));
+    }
+    case NK_EXP: {
+      Node *rhs = eval(expr->as.unop, x, y, t);
+      if (!rhs) return NULL;
+      if (!expect_number(rhs)) return NULL;
+      return node_number_loc(expr->file, expr->line, expf(rhs->as.number));
+    }
+    case NK_LN: {
+      Node *rhs = eval(expr->as.unop, x, y, t);
+      if (!rhs) return NULL;
+      if (!expect_number(rhs)) return NULL;
+      return node_number_loc(expr->file, expr->line, logf(rhs->as.number));
+    }
+    case NK_MUL_INV: {
+      Node *rhs = eval(expr->as.unop, x, y, t);
+      if (!rhs) return NULL;
+      if (!expect_number(rhs)) return NULL;
+      return node_number_loc(expr->file, expr->line, 1.0/(rhs->as.number));
+    }
+    case NK_ADD_INV: {
+      Node *rhs = eval(expr->as.unop, x, y, t);
+      if (!rhs) return NULL;
+      if (!expect_number(rhs)) return NULL;
+      return node_number_loc(expr->file, expr->line, 0-(rhs->as.number));
     }
     case NK_ABS: {
         Node *rhs = eval(expr->as.unop, x, y, t);
@@ -497,16 +566,13 @@ Node *gen_node(Grammar grammar, Node *node, int depth)
     case NK_BOOLEAN:
         return node;
 
-    case NK_SQRT: {
-        Node *rhs = gen_node(grammar, node->as.unop, depth);
-        if (!rhs) return NULL;
-        return node_unop_loc(node->file, node->line, node->kind, rhs);
-    }
-    case NK_SIN: {
-        Node *rhs = gen_node(grammar, node->as.unop, depth);
-        if (!rhs) return NULL;
-        return node_unop_loc(node->file, node->line, node->kind, rhs);
-    }
+    case NK_SQRT:
+    case NK_COS:
+    case NK_LN:
+    case NK_EXP:
+    case NK_MUL_INV:
+    case NK_ADD_INV:
+    case NK_SIN:
     case NK_ABS: {
         Node *rhs = gen_node(grammar, node->as.unop, depth);
         if (!rhs) return NULL;
@@ -704,6 +770,31 @@ bool compile_node_into_fragment_expression(String_Builder *sb, Node *expr, size_
         if (!compile_node_into_fragment_expression(sb, expr->as.unop, level + 1)) return false;
         sb_append_cstr(sb, ")");
         break;
+    case NK_COS:
+      sb_append_cstr(sb, "cos(");
+      if (!compile_node_into_fragment_expression(sb, expr->as.unop, level + 1)) return false;
+      sb_append_cstr(sb, ")");
+      break;
+    case NK_EXP:
+      sb_append_cstr(sb, "exp(");
+      if (!compile_node_into_fragment_expression(sb, expr->as.unop, level + 1)) return false;
+      sb_append_cstr(sb, ")");
+      break;
+    case NK_LN:
+      sb_append_cstr(sb, "log(");
+      if (!compile_node_into_fragment_expression(sb, expr->as.unop, level + 1)) return false;
+      sb_append_cstr(sb, ")");
+      break;
+    case NK_MUL_INV:
+      sb_append_cstr(sb, "(1.0/");
+      if (!compile_node_into_fragment_expression(sb, expr->as.unop, level + 1)) return false;
+      sb_append_cstr(sb, ")");
+      break;
+    case NK_ADD_INV:
+      sb_append_cstr(sb, "(0-");
+      if (!compile_node_into_fragment_expression(sb, expr->as.unop, level + 1)) return false;
+      sb_append_cstr(sb, ")");
+      break;
 
     case NK_ABS:
         sb_append_cstr(sb, "abs(");
@@ -775,14 +866,20 @@ bool compile_node_func_into_fragment_shader(String_Builder *sb, Node *f)
     sb_append_cstr(sb, "in vec2 fragTexCoord;\n");
     sb_append_cstr(sb, "out vec4 finalColor;\n");
     sb_append_cstr(sb, "uniform float time;\n");
+
+    sb_append_cstr(sb, "uniform float amp;\n");
+    sb_append_cstr(sb, "uniform float freq;\n");
+    
+    sb_append_cstr(sb, "uniform float x_offset;\n");
+    sb_append_cstr(sb, "uniform float y_offset;\n");
     sb_append_cstr(sb, "vec4 map_color(vec3 rgb) {\n");
     sb_append_cstr(sb, "    return vec4((rgb + 1)/2.0, 1.0);\n");
     sb_append_cstr(sb, "}\n");
     sb_append_cstr(sb, "void main()\n");
     sb_append_cstr(sb, "{\n");
-    sb_append_cstr(sb, "    float x = fragTexCoord.x*2.0 - 1.0;\n");
-    sb_append_cstr(sb, "    float y = fragTexCoord.y*2.0 - 1.0;\n");
-    sb_append_cstr(sb, "    float t = sin(time);\n");
+    sb_append_cstr(sb, "    float x = fragTexCoord.x*2.0 - x_offset;\n");
+    sb_append_cstr(sb, "    float y = fragTexCoord.y*2.0 - y_offset;\n");
+    sb_append_cstr(sb, "    float t = amp*sin(freq*time);\n");
     sb_append_cstr(sb, "    finalColor = map_color(");
     if (!compile_node_into_fragment_expression(sb, f, 0)) return false;
     sb_append_cstr(sb, ");\n");
@@ -869,6 +966,26 @@ bool parse_triple(Alexer *l, Node **first, Node **second, Node **third)
 
 bool parse_node(Alexer *l, Node **node)
 {
+#define parse_unop(name,id)                            \
+  else if (alexer_token_text_equal_cstr(t, (name))) {  \
+    alexer_get_token(l, &t);                                            \
+    if (!alexer_expect_id(l, t, ALEXER_ID(ALEXER_PUNCT, PUNCT_OPAREN))) return false; \
+    Node *unop;                                                         \
+    if (!parse_node(l, &unop)) return false;                            \
+    *node = node_unop_loc(t.loc.file_path, t.loc.row, (id), unop);      \
+    alexer_get_token(l, &t);                                            \
+    if (!alexer_expect_id(l, t, ALEXER_ID(ALEXER_PUNCT, PUNCT_CPAREN))) return false; \
+  }                                                                     \
+
+
+#define parse_binop(name,id)                         \
+  else if (alexer_token_text_equal_cstr(t, (name))) { \
+      Node *lhs, *rhs;                               \
+      if (!parse_pair(l, &lhs, &rhs)) return false;                     \
+      *node = node_binop_loc(t.loc.file_path, t.loc.row, (id), lhs, rhs); \
+    }                                                                   \
+
+
     Alexer_Token t = {0};
     alexer_get_token(l, &t);
     if (!alexer_expect_id(l, t, ALEXER_SYMBOL)) return false;
@@ -880,45 +997,28 @@ bool parse_node(Alexer *l, Node **node)
         *node = node_loc(t.loc.file_path, t.loc.row, NK_Y);
     } else if (alexer_token_text_equal_cstr(t, "t")) {
         *node = node_loc(t.loc.file_path, t.loc.row, NK_T);
-    } else if (alexer_token_text_equal_cstr(t, "sqrt")) {
-        alexer_get_token(l, &t);
-        if (!alexer_expect_id(l, t, ALEXER_ID(ALEXER_PUNCT, PUNCT_OPAREN))) return false;
+    }
 
-        Node *unop;
-        if (!parse_node(l, &unop)) return false;
-        *node = node_unop_loc(t.loc.file_path, t.loc.row, NK_SQRT, unop);
+    parse_unop("abs",NK_ABS)
+    parse_unop("sqrt",NK_SQRT)
+    parse_unop("sin",NK_SIN)
+      parse_unop("cos",NK_COS)
+      parse_unop("exp",NK_EXP)
+      parse_unop("ln",NK_LN)
+      parse_unop("add_inv",NK_ADD_INV)
+      parse_unop("mul_inv",NK_MUL_INV)
 
-        alexer_get_token(l, &t);
-        if (!alexer_expect_id(l, t, ALEXER_ID(ALEXER_PUNCT, PUNCT_CPAREN))) return false;
-    } else if (alexer_token_text_equal_cstr(t, "sin")) {
-        alexer_get_token(l, &t);
-        if (!alexer_expect_id(l, t, ALEXER_ID(ALEXER_PUNCT, PUNCT_OPAREN))) return false;
+    
+      parse_binop("add",NK_ADD)
+      parse_binop("mult",NK_MULT)
+      parse_binop("mod",NK_MOD)
 
-        Node *unop;
-        if (!parse_node(l, &unop)) return false;
-        *node = node_unop_loc(t.loc.file_path, t.loc.row, NK_SIN, unop);
-
-        alexer_get_token(l, &t);
-        if (!alexer_expect_id(l, t, ALEXER_ID(ALEXER_PUNCT, PUNCT_CPAREN))) return false;
-    } else if (alexer_token_text_equal_cstr(t, "abs")) {
-        alexer_get_token(l, &t);
-        if (!alexer_expect_id(l, t, ALEXER_ID(ALEXER_PUNCT, PUNCT_OPAREN))) return false;
-
-        Node *unop;
-        if (!parse_node(l, &unop)) return false;
-        *node = node_unop_loc(t.loc.file_path, t.loc.row, NK_ABS, unop);
-
-        alexer_get_token(l, &t);
-        if (!alexer_expect_id(l, t, ALEXER_ID(ALEXER_PUNCT, PUNCT_CPAREN))) return false;
-    } else if (alexer_token_text_equal_cstr(t, "add")) {
-        Node *lhs, *rhs;
-        if (!parse_pair(l, &lhs, &rhs)) return false;
-        *node = node_binop_loc(t.loc.file_path, t.loc.row, NK_ADD, lhs, rhs);
-    } else if (alexer_token_text_equal_cstr(t, "mult")) {
-        Node *lhs, *rhs;
-        if (!parse_pair(l, &lhs, &rhs)) return false;
-        *node = node_binop_loc(t.loc.file_path, t.loc.row, NK_MULT, lhs, rhs);
-    } else if (alexer_token_text_equal_cstr(t, "vec3")) {
+    else if (alexer_token_text_equal_cstr(t, "mod")) {
+      Node *lhs, *rhs;
+      if (!parse_pair(l, &lhs, &rhs)) return false;
+      *node = node_binop_loc(t.loc.file_path, t.loc.row, NK_ADD, lhs, rhs);
+    }
+    else if (alexer_token_text_equal_cstr(t, "vec3")) {
         Node *first, *second, *third;
         if (!parse_triple(l, &first, &second, &third)) return false;
         *node = node_triple_loc(t.loc.file_path, t.loc.row, first, second, third);
@@ -1077,6 +1177,7 @@ int main(int argc, char **argv)
 
         const char *input_path = shift(argv, argc);
 
+    GUI:
         String_Builder src = {0};
         if (!read_entire_file(input_path, &src)) return 1;
 
@@ -1114,6 +1215,11 @@ int main(int argc, char **argv)
         RenderTexture2D screen = LoadRenderTexture(width, height);
         Shader shader = LoadShaderFromMemory(NULL, sb.items);
         int time_loc = GetShaderLocation(shader, "time");
+        int x_offset_loc = GetShaderLocation(shader, "x_offset");
+        int y_offset_loc = GetShaderLocation(shader, "y_offset");
+        int amp_loc = GetShaderLocation(shader, "amp");
+        int freq_loc = GetShaderLocation(shader, "freq");
+
         SetTargetFPS(fps);
         SetExitKey(KEY_NULL);
         Texture default_texture = {
@@ -1124,8 +1230,29 @@ int main(int argc, char **argv)
             .format = PIXELFORMAT_UNCOMPRESSED_R8G8B8A8,
         };
         float time = 0.0f;
+
         float max_render_length = (2*PI)*2;
         bool pause = false;
+        float x_coord = 0;
+        float y_coord = 0;
+        float x_zoom = 1;
+        float y_zoom = 1;
+        float amp = 1;
+        float freq = 1;
+        bool restart = false;
+
+        printf("==============================================================================================\n"
+               "\tUse <↑←↓→>   key to MOVE around\n"
+               "\tUse <WASD>   key to ZOOM around\n"
+               "\tUse <GH>     key to ZOOM uniformly\n"
+               "\tUse <IK>     key to adjust AMPLITUDE (t variable)\n"
+               "\tUse <JL>     key to adjust FREQUENCY (t variable)\n"
+               "\tUse <O>      key to set everything to default\n"
+               "\tUse <Space>  key to PAUSE\n"
+               "\tUse <QE>     key to adjust the TIME (only works in pause)\n"
+               "\tUse <?=>     key to get INFORMATION\n"
+               "\tUse <N>      key to start a new run\n"
+               "==============================================================================================\n");
         while (!WindowShouldClose()) {
             float w = GetScreenWidth();
             float h = GetScreenHeight();
@@ -1133,15 +1260,29 @@ int main(int argc, char **argv)
             BeginDrawing();
             if (ffmpeg == NULL) {
                 SetShaderValue(shader, time_loc, &time, SHADER_UNIFORM_FLOAT);
+                SetShaderValue(shader, x_offset_loc, &x_zoom, SHADER_UNIFORM_FLOAT);
+                SetShaderValue(shader, y_offset_loc, &y_zoom, SHADER_UNIFORM_FLOAT);
+                SetShaderValue(shader, amp_loc, &amp, SHADER_UNIFORM_FLOAT);
+                SetShaderValue(shader, freq_loc, &freq, SHADER_UNIFORM_FLOAT);
+                
                 BeginShaderMode(shader);
                     DrawTexturePro(
                             default_texture,
-                            (Rectangle){0, 0, 1, 1},
+                            (Rectangle){x_coord, y_coord, x_coord+x_zoom, y_coord+y_zoom},
                             (Rectangle){0, 0, w, h},
                             (Vector2){0}, 0, WHITE);
                 EndShaderMode();
                 if (!pause) time += dt;
-
+                if ( pause && IsKeyPressed(KEY_Q)) {
+                  time -= 0.5 * dt;
+                }
+                if (pause && IsKeyPressed(KEY_E)) {
+                  time += 0.5 * dt;
+                }
+                if (IsKeyPressed(KEY_N)) {
+                  restart = true;
+                  break;
+                }
                 if (IsKeyPressed(KEY_R)) {
                     ffmpeg = ffmpeg_start_rendering(width, height, fps);
                     time = 0;
@@ -1149,6 +1290,99 @@ int main(int argc, char **argv)
                 }
                 if (IsKeyPressed(KEY_SPACE)) {
                     pause = !pause;
+                }
+                if (IsKeyPressed(KEY_O)) {
+                  x_zoom = 1;
+                  y_zoom = 1;
+                  x_coord = 0;
+                  y_coord = 0;
+                  amp = 1;
+                  freq = 1;
+                }
+                if (IsKeyPressed(KEY_EQUAL) || GetCharPressed() == '?') {
+                  printf("==============================================================================================\n");
+ 
+                  printf("pause   :  %s\n",pause ? "true" : "false");
+                  printf("time    : %5.2lf\n",time);
+
+                  printf("rect    : (%5.2lf,\t%5.2lf)\n\n",x_coord,y_coord);
+
+                  printf("          (%5.2lf,\t%5.2lf)\n\n",x_coord+x_zoom,y_coord+y_zoom);
+
+                  printf("zoom    :  (%5.2lf,\t%5.2lf)\n\n",x_zoom,y_zoom);
+                  printf("amp     :   %5.2lf,\n",amp);
+                  printf("freq    :   %5.2lf\n",freq);
+
+                  printf("seed    :   %d\n\n\n",seed);
+
+                  printf(
+                         "\tUse <↑←↓→>   key to MOVE around\n"
+                         "\tUse <WASD>   key to ZOOM around\n"
+                         "\tUse <GH>     key to ZOOM uniformly\n"
+                         "\tUse <IK>     key to adjust AMPLITUDE (t variable)\n"
+                         "\tUse <JL>     key to adjust FREQUENCY (t variable)\n"
+                         "\tUse <O>      key to set everything to default\n"
+                         "\tUse <Space>  key to PAUSE\n"
+                         "\tUse <QE>     key to adjust the TIME (only works in pause)\n"
+                         "\tUse <?=>     key to get INFORMATION\n"
+                         "\tUse <N>      key to start a new run\n"
+                         "==============================================================================================\n");
+
+                }
+                
+
+
+
+                if (IsKeyPressed(KEY_UP)) {
+                  y_coord += 0.01;
+                }
+                if (IsKeyPressed(KEY_DOWN)) {
+                  y_coord -= 0.01;
+                }
+
+                if (IsKeyPressed(KEY_LEFT)) {
+                  x_coord += 0.01;
+                }
+                if (IsKeyPressed(KEY_RIGHT)) {
+                  x_coord -= 0.01;
+                }
+
+                if (IsKeyPressed(KEY_W)) {
+                  y_zoom /= 1.2;
+                }
+                if (IsKeyPressed(KEY_S)) {
+                  y_zoom *= 1.2;
+                }
+
+                if (IsKeyPressed(KEY_A)) {
+                  x_zoom /= 1.2;
+                }
+                if (IsKeyPressed(KEY_D)) {
+                  x_zoom *= 1.2;
+                }
+
+
+                if (IsKeyPressed(KEY_I) ) {
+                  amp *= 1.2;
+                }
+                if (IsKeyPressed(KEY_K)) {
+                  amp /= 1.2;
+                }
+
+                if (IsKeyPressed(KEY_J)) {
+                  freq /= 1.2;
+                }
+                if (IsKeyPressed(KEY_L)) {
+                  freq *= 1.2;
+                }
+
+                if (IsKeyPressed(KEY_G)) {
+                  x_zoom /= 1.2;
+                  y_zoom /= 1.2;
+                }
+                if (IsKeyPressed(KEY_H)) {
+                  x_zoom *= 1.2;
+                  y_zoom *= 1.2;
                 }
             } else {
                 if (time < max_render_length) {
@@ -1210,6 +1444,10 @@ int main(int argc, char **argv)
             EndDrawing();
         }
         CloseWindow();
+        if (restart){
+          seed ^= seed >> 3 ;
+          goto GUI;
+        }
         return 0;
     }
 

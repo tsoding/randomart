@@ -10,13 +10,20 @@ A | random
   | abs(x)
   | abs(y)
   | sqrt(add(mult(x, x), mult(y, y))) # Distance from (0, 0) to (x, y)
+  | sqrt(add(mult(x, x), add(mult(y, y),mult(t,t)))) # Distance from (0, 0) to (x, y)
   ;
 
 # Expressions
-C ||  A
+C ||||  A
   ||| add(C, C)
   ||| mult(C, C)
-  | sqrt(abs(C))
-  # ||| abs(C)
-  #||| sin(C)
+  | mod(C, C)
+  || sqrt(abs(C))
+  || abs(C)
+  || cos(C)
+  || ln(abs(C))
+  || exp(C)
+  ||| mul_inv(C)
+  ||| add_inv(C)
+  || sin(C)
   ;
