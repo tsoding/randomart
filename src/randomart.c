@@ -775,6 +775,10 @@ bool compile_node_func_into_fragment_shader(String_Builder *sb, Node *f)
     sb_append_cstr(sb, "in vec2 fragTexCoord;\n");
     sb_append_cstr(sb, "out vec4 finalColor;\n");
     sb_append_cstr(sb, "uniform float time;\n");
+
+    sb_append_cstr(sb, "uniform float amp;\n");
+    sb_append_cstr(sb, "uniform float freq;\n");
+    
     sb_append_cstr(sb, "uniform float x_offset;\n");
     sb_append_cstr(sb, "uniform float y_offset;\n");
     sb_append_cstr(sb, "vec4 map_color(vec3 rgb) {\n");
@@ -784,7 +788,7 @@ bool compile_node_func_into_fragment_shader(String_Builder *sb, Node *f)
     sb_append_cstr(sb, "{\n");
     sb_append_cstr(sb, "    float x = fragTexCoord.x*2.0 - x_offset;\n");
     sb_append_cstr(sb, "    float y = fragTexCoord.y*2.0 - y_offset;\n");
-    sb_append_cstr(sb, "    float t = sin(time);\n");
+    sb_append_cstr(sb, "    float t = amp*sin(freq*time);\n");
     sb_append_cstr(sb, "    finalColor = map_color(");
     if (!compile_node_into_fragment_expression(sb, f, 0)) return false;
     sb_append_cstr(sb, ");\n");
@@ -1118,6 +1122,8 @@ int main(int argc, char **argv)
         int time_loc = GetShaderLocation(shader, "time");
         int x_offset_loc = GetShaderLocation(shader, "x_offset");
         int y_offset_loc = GetShaderLocation(shader, "y_offset");
+        int amp_loc = GetShaderLocation(shader, "amp");
+        int freq_loc = GetShaderLocation(shader, "freq");
 
         SetTargetFPS(fps);
         SetExitKey(KEY_NULL);
@@ -1136,7 +1142,20 @@ int main(int argc, char **argv)
         float y_coord = 0;
         float x_zoom = 1;
         float y_zoom = 1;
+        float amp = 1;
+        float freq = 1;
 
+        printf("==============================================================================================\n"
+               "\tUse arrow     keys to MOVE around\n"
+               "\tUse <WASD>   keys to ZOOM around\n"
+               "\tUse <GH>     keys to ZOOM uniformly\n"
+               "\tUse <IK>     keys to adjust AMPLITUDE (t variable)\n"
+               "\tUse <JL>     keys to adjust FREQUENCY (t variable)\n"
+               "\tUse <O>      key to set everything to default\n"
+               "\tUse <Space>  key to PAUSE\n"
+               "\tUse <QE>     key to adjust the TIME (only works in pause)\n"
+               "\tUse <?=>     key to get INFORMATION\n"
+               "==============================================================================================\n");
         while (!WindowShouldClose()) {
             float w = GetScreenWidth();
             float h = GetScreenHeight();
@@ -1146,6 +1165,9 @@ int main(int argc, char **argv)
                 SetShaderValue(shader, time_loc, &time, SHADER_UNIFORM_FLOAT);
                 SetShaderValue(shader, x_offset_loc, &x_zoom, SHADER_UNIFORM_FLOAT);
                 SetShaderValue(shader, y_offset_loc, &y_zoom, SHADER_UNIFORM_FLOAT);
+                SetShaderValue(shader, amp_loc, &amp, SHADER_UNIFORM_FLOAT);
+                SetShaderValue(shader, freq_loc, &freq, SHADER_UNIFORM_FLOAT);
+                
                 BeginShaderMode(shader);
                     DrawTexturePro(
                             default_texture,
@@ -1154,6 +1176,12 @@ int main(int argc, char **argv)
                             (Vector2){0}, 0, WHITE);
                 EndShaderMode();
                 if (!pause) time += dt;
+                if ( pause && IsKeyPressed(KEY_Q)) {
+                  time -= 0.5 * dt;
+                }
+                if (pause && IsKeyPressed(KEY_E)) {
+                  time += 0.5 * dt;
+                }
 
                 if (IsKeyPressed(KEY_R)) {
                     ffmpeg = ffmpeg_start_rendering(width, height, fps);
@@ -1163,42 +1191,90 @@ int main(int argc, char **argv)
                 if (IsKeyPressed(KEY_SPACE)) {
                     pause = !pause;
                 }
-                if ( pause && IsKeyPressed(KEY_Q)) {
-                  time -= 0.5*dt;
+                if (IsKeyPressed(KEY_O)) {
+                  x_zoom = 1;
+                  y_zoom = 1;
+                  x_coord = 0;
+                  y_coord = 0;
+                  amp = 1;
+                  freq = 1;
                 }
-                if (pause && IsKeyPressed(KEY_E)) {
-                  time += 0.5*dt;
+                if (IsKeyPressed(KEY_EQUAL) || GetCharPressed() == '?') {
+                  printf("==============================================================================================\n"
+ 
+                  printf("pause   :  %s\n",pause ? "true" : "false");
+                  printf("time    : %5.2lf\n",time);
+
+                  printf("rect    : (%5.2lf,\t%5.2lf)\n\n",x_coord,y_coord);
+
+                  printf("          (%5.2lf,\t%5.2lf)\n\n",x_coord+x_zoom,y_coord+y_zoom);
+
+                  printf("zoom    :  (%5.2lf,\t%5.2lf)\n\n",x_zoom,y_zoom);
+                  printf("amp     :   %5.2lf,\n",amp);
+                  printf("freq    :   %5.2lf\n",freq);
+
+                  printf("seed    :   %d\n\n\n",seed);
+
+                         "\tUse arrow     keys to MOVE around\n"
+                         "\tUse <W|A|S|D> keys to ZOOM around\n"
+                         "\tUse <G|H>     keys to ZOOM uniformly\n"
+                         "\tUse <I|K>     keys to adjust AMPLITUDE (t variable)\n"
+                         "\tUse <J|L>     keys to adjust FREQUENCY (t variable)\n"
+                         "\tUse <O>       key to set everything to default\n"
+                         "\tUse <Space>   key to PAUSE\n"
+                         "\tUse <Q|E>     key to adjust the TIME (only works in pause)\n"
+                         "\tUse <?|=>     key to get INFORMATION\n"
+               "==============================================================================================\n");
+                  
                 }
 
-                if (IsKeyPressed(KEY_W)) {
+
+
+
+                if (IsKeyPressed(KEY_UP)) {
                   y_coord += 0.01;
                 }
-                if (IsKeyPressed(KEY_S)) {
+                if (IsKeyPressed(KEY_DOWN)) {
                   y_coord -= 0.01;
                 }
 
-                if (IsKeyPressed(KEY_A)) {
+                if (IsKeyPressed(KEY_LEFT)) {
                   x_coord += 0.01;
                 }
-                if (IsKeyPressed(KEY_D)) {
+                if (IsKeyPressed(KEY_RIGHT)) {
                   x_coord -= 0.01;
                 }
 
-                if (IsKeyPressed(KEY_I)) {
+                if (IsKeyPressed(KEY_W)) {
                   y_zoom /= 1.2;
                 }
-                if (IsKeyPressed(KEY_K)) {
+                if (IsKeyPressed(KEY_S)) {
                   y_zoom *= 1.2;
                 }
 
-                if (IsKeyPressed(KEY_J)) {
+                if (IsKeyPressed(KEY_A)) {
                   x_zoom /= 1.2;
                 }
-                if (IsKeyPressed(KEY_L)) {
+                if (IsKeyPressed(KEY_D)) {
                   x_zoom *= 1.2;
                 }
 
-                if (IsKeyPressed(KEY_U)) {
+
+                if (IsKeyPressed(KEY_I) ) {
+                  amp *= 1.2;
+                }
+                if (IsKeyPressed(KEY_K)) {
+                  amp /= 1.2;
+                }
+
+                if (IsKeyPressed(KEY_J)) {
+                  freq /= 1.2;
+                }
+                if (IsKeyPressed(KEY_L)) {
+                  freq *= 1.2;
+                }
+
+                if (IsKeyPressed(KEY_G)) {
                   x_zoom /= 1.2;
                   y_zoom /= 1.2;
                 }
