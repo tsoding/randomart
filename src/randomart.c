@@ -597,6 +597,17 @@ bool flag_int(int *argc, char ***argv, int *value)
     return true;
 }
 
+bool flag_float(int *argc, char ***argv, float *value)
+{
+    const char *flag = shift(*argv, *argc);
+    if ((*argc) <= 0) {
+        nob_log(ERROR, "No argument is provided for %s", flag);
+        return false;
+    }
+    *value = atof(shift(*argv, *argc));
+    return true;
+}
+
 typedef enum {
     PUNCT_BAR,
     PUNCT_OPAREN,
@@ -802,6 +813,8 @@ int main(int argc, char **argv)
     int height = 9*100;
     int fps = 60;
 
+    float time = 0.f;
+
     while (argc > 0) {
         const char *flag = argv[0];
         if (strcmp(flag, "-seed") == 0) {
@@ -814,6 +827,8 @@ int main(int argc, char **argv)
             if (!flag_int(&argc, &argv, &height)) return 1;
         } else if (strcmp(flag, "-fps") == 0) {
             if (!flag_int(&argc, &argv, &fps)) return 1;
+        } else if (strcmp(flag, "-time") == 0) {
+            if (!flag_float(&argc, &argv, &time)) return 1;
         } else {
             break;
         }
@@ -868,7 +883,7 @@ int main(int argc, char **argv)
 
         Image image;
         nob_log(INFO, "Generating image...");
-        if (!render_image(&image, f, width, height, 0.0f)) return 1;
+        if (!render_image(&image, f, width, height, time)) return 1;
         if (!ExportImage(image, output_path)) return 1;
 
         return 0;
