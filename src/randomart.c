@@ -1124,6 +1124,7 @@ int main(int argc, char **argv)
             .format = PIXELFORMAT_UNCOMPRESSED_R8G8B8A8,
         };
         float time = 0.0f;
+        
         float max_render_length = (2*PI)*2;
         bool pause = false;
         while (!WindowShouldClose()) {
@@ -1150,6 +1151,13 @@ int main(int argc, char **argv)
                 if (IsKeyPressed(KEY_SPACE)) {
                     pause = !pause;
                 }
+                if ( pause && IsKeyPressed(KEY_Q)) {
+                  time -= 0.5*dt;
+                }
+                if (pause && IsKeyPressed(KEY_E)) {
+                  time += 0.5*dt;
+                }
+
             } else {
                 if (time < max_render_length) {
                     BeginTextureMode(screen);
