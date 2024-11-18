@@ -1124,9 +1124,12 @@ int main(int argc, char **argv)
             .format = PIXELFORMAT_UNCOMPRESSED_R8G8B8A8,
         };
         float time = 0.0f;
-        
+
         float max_render_length = (2*PI)*2;
         bool pause = false;
+        float x_coord = 0;
+        float y_coord = 0;
+
         while (!WindowShouldClose()) {
             float w = GetScreenWidth();
             float h = GetScreenHeight();
@@ -1137,7 +1140,7 @@ int main(int argc, char **argv)
                 BeginShaderMode(shader);
                     DrawTexturePro(
                             default_texture,
-                            (Rectangle){0, 0, 1, 1},
+                            (Rectangle){x_coord, y_coord, x_coord+1, y_coord+1},
                             (Rectangle){0, 0, w, h},
                             (Vector2){0}, 0, WHITE);
                 EndShaderMode();
@@ -1156,6 +1159,19 @@ int main(int argc, char **argv)
                 }
                 if (pause && IsKeyPressed(KEY_E)) {
                   time += 0.5*dt;
+                }
+                if (IsKeyPressed(KEY_W)) {
+                  y_coord += 0.01;
+                }
+                if (IsKeyPressed(KEY_S)) {
+                  y_coord -= 0.01;
+                }
+
+                if (IsKeyPressed(KEY_A)) {
+                  x_coord += 0.01;
+                }
+                if (IsKeyPressed(KEY_D)) {
+                  x_coord -= 0.01;
                 }
 
             } else {
