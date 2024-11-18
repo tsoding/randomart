@@ -417,33 +417,6 @@ float clamp_float(float v, float lo, float hi)
     return v;
 }
 
-bool render_image(Image image, Node *f)
-{
-    Color *pixels = image.data;
-    bool result = true;
-    Arena temp_arena = {0};
-    Arena *saved_arena = context_arena;
-    context_arena = &temp_arena;
-    for (int y = 0; y < image.height; ++y) {
-        float ny = (float)y/image.height*2.0f - 1;
-        for (int x = 0; x < image.width; ++x) {
-            float nx = (float)x/image.width*2.0f - 1;
-            Vector3 c;
-            if (!eval_func(f, nx, ny, 0.0, &c)) return_defer(false);
-            arena_reset(&temp_arena);
-            size_t index = y*image.width + x;
-            pixels[index].r = clamp_float((c.x + 1)/2*255, 0, 255);
-            pixels[index].g = clamp_float((c.y + 1)/2*255, 0, 255);
-            pixels[index].b = clamp_float((c.z + 1)/2*255, 0, 255);
-            pixels[index].a = 255;
-        }
-    }
-defer:
-    arena_free(&temp_arena);
-    context_arena = saved_arena;
-    return result;
-}
-
 #define node_print_ln(node) (node_print(node), printf("\n"))
 
 typedef struct {
@@ -790,6 +763,39 @@ bool compile_node_func_into_fragment_shader(String_Builder *sb, Node *f)
     return true;
 }
 
+bool render_image(Image *image, Node *f, int width, int height)
+{
+    String_Builder sb = {0};
+    if (!compile_node_func_into_fragment_shader(&sb, f)) return false;
+    sb_append_null(&sb);
+    InitWindow(width, height, "RandomArt");
+    SetWindowState(FLAG_WINDOW_HIDDEN);
+    RenderTexture2D screen = LoadRenderTexture(width, height);
+    Shader shader = LoadShaderFromMemory(NULL, sb.items);
+    int time_loc = GetShaderLocation(shader, "time");
+    Texture default_texture = {
+        .id = rlGetTextureIdDefault(),
+        .width = 1,
+        .height = 1,
+        .mipmaps = 1,
+        .format = PIXELFORMAT_UNCOMPRESSED_R8G8B8A8,
+    };
+    const float t = 0.0f;
+    BeginTextureMode(screen);
+        BeginShaderMode(shader);
+            SetShaderValue(shader, time_loc, &t, SHADER_UNIFORM_FLOAT);
+            DrawTexturePro(
+                default_texture,
+                (Rectangle){0, 0, 1, 1},
+                (Rectangle){0, 0, width, height},
+                (Vector2){0}, 0, WHITE);
+        EndShaderMode();
+        DrawTexture(screen.texture, 0, 0, WHITE);
+    EndTextureMode();
+    *image = LoadImageFromTexture(screen.texture);
+    return true;
+}
+
 bool flag_int(int *argc, char ***argv, int *value)
 {
     const char *flag = shift(*argv, *argc);
@@ -1032,21 +1038,31 @@ int main(int argc, char **argv)
     const char *command_name = shift(argv, argc);
 
     if (strcmp(command_name, "file") == 0) {
-        if (argc <= 0) {
-            nob_log(ERROR, "Usage: %s %s <output-path>", program_name, command_name);
-            nob_log(ERROR, "No output path is provided");
+        if (argc <= 1) {
+            nob_log(ERROR, "Usage: %s %s <input> <output-path>", program_name, command_name);
+            if (argc == 0)
+                nob_log(ERROR, "No input is provided");
+            else
+                nob_log(ERROR, "No output path is provided");
             return 1;
         }
+
+        const char *input_path = shift(argv, argc);
         const char *output_path = shift(argv, argc);
+        
+        String_Builder src = {0};
+        if (!read_entire_file(input_path, &src)) return 1;
 
-        if (argc > 0) {
-            nob_log(ERROR, "Usage: %s %s <output-path>", program_name, command_name);
-            nob_log(ERROR, "%s accepts only 1 argument", command_name);
-            return 1;
-        }
-
+        Alexer l = alexer_create(input_path, src.items, src.count);
+        l.puncts = puncts;
+        l.puncts_count = COUNT_PUNCTS;
+        l.sl_comments = comments;
+        l.sl_comments_count = ARRAY_LEN(comments);
         Grammar grammar = {0};
-        Alexer_Token entry = default_grammar(&grammar);
+        if (!parse_grammar(&l, &grammar)) return 1;
+
+        assert(grammar.count > 0);
+        Alexer_Token entry = grammar.items[0].name;
 
         srand(seed);
         nob_log(INFO, "SEED: %d", seed);
@@ -1060,9 +1076,9 @@ int main(int argc, char **argv)
             return 1;
         }
 
-        Image image = GenImageColor(width, height, BLANK);
+        Image image;
         nob_log(INFO, "Generating image...");
-        if (!render_image(image, f)) return 1;
+        if (!render_image(&image, f, width, height)) return 1;
         if (!ExportImage(image, output_path)) return 1;
 
         return 0;
@@ -1071,7 +1087,7 @@ int main(int argc, char **argv)
     if (strcmp(command_name, "gui") == 0) {
         if (argc <= 0) {
             nob_log(ERROR, "Usage: %s %s <input>", program_name, command_name);
-            nob_log(ERROR, "no input is provided");
+            nob_log(ERROR, "No input is provided");
             return 1;
         }
 
