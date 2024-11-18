@@ -775,13 +775,15 @@ bool compile_node_func_into_fragment_shader(String_Builder *sb, Node *f)
     sb_append_cstr(sb, "in vec2 fragTexCoord;\n");
     sb_append_cstr(sb, "out vec4 finalColor;\n");
     sb_append_cstr(sb, "uniform float time;\n");
+    sb_append_cstr(sb, "uniform float x_offset;\n");
+    sb_append_cstr(sb, "uniform float y_offset;\n");
     sb_append_cstr(sb, "vec4 map_color(vec3 rgb) {\n");
     sb_append_cstr(sb, "    return vec4((rgb + 1)/2.0, 1.0);\n");
     sb_append_cstr(sb, "}\n");
     sb_append_cstr(sb, "void main()\n");
     sb_append_cstr(sb, "{\n");
-    sb_append_cstr(sb, "    float x = fragTexCoord.x*2.0 - 1.0;\n");
-    sb_append_cstr(sb, "    float y = fragTexCoord.y*2.0 - 1.0;\n");
+    sb_append_cstr(sb, "    float x = fragTexCoord.x*2.0 - x_offset;\n");
+    sb_append_cstr(sb, "    float y = fragTexCoord.y*2.0 - y_offset;\n");
     sb_append_cstr(sb, "    float t = sin(time);\n");
     sb_append_cstr(sb, "    finalColor = map_color(");
     if (!compile_node_into_fragment_expression(sb, f, 0)) return false;
@@ -1114,6 +1116,9 @@ int main(int argc, char **argv)
         RenderTexture2D screen = LoadRenderTexture(width, height);
         Shader shader = LoadShaderFromMemory(NULL, sb.items);
         int time_loc = GetShaderLocation(shader, "time");
+        int x_offset_loc = GetShaderLocation(shader, "x_offset");
+        int y_offset_loc = GetShaderLocation(shader, "y_offset");
+
         SetTargetFPS(fps);
         SetExitKey(KEY_NULL);
         Texture default_texture = {
@@ -1129,6 +1134,8 @@ int main(int argc, char **argv)
         bool pause = false;
         float x_coord = 0;
         float y_coord = 0;
+        float x_zoom = 1;
+        float y_zoom = 1;
 
         while (!WindowShouldClose()) {
             float w = GetScreenWidth();
@@ -1137,10 +1144,12 @@ int main(int argc, char **argv)
             BeginDrawing();
             if (ffmpeg == NULL) {
                 SetShaderValue(shader, time_loc, &time, SHADER_UNIFORM_FLOAT);
+                SetShaderValue(shader, x_offset_loc, &x_zoom, SHADER_UNIFORM_FLOAT);
+                SetShaderValue(shader, y_offset_loc, &y_zoom, SHADER_UNIFORM_FLOAT);
                 BeginShaderMode(shader);
                     DrawTexturePro(
                             default_texture,
-                            (Rectangle){x_coord, y_coord, x_coord+1, y_coord+1},
+                            (Rectangle){x_coord, y_coord, x_coord+x_zoom, y_coord+y_zoom},
                             (Rectangle){0, 0, w, h},
                             (Vector2){0}, 0, WHITE);
                 EndShaderMode();
@@ -1160,6 +1169,7 @@ int main(int argc, char **argv)
                 if (pause && IsKeyPressed(KEY_E)) {
                   time += 0.5*dt;
                 }
+
                 if (IsKeyPressed(KEY_W)) {
                   y_coord += 0.01;
                 }
@@ -1174,6 +1184,28 @@ int main(int argc, char **argv)
                   x_coord -= 0.01;
                 }
 
+                if (IsKeyPressed(KEY_I)) {
+                  y_zoom /= 1.2;
+                }
+                if (IsKeyPressed(KEY_K)) {
+                  y_zoom *= 1.2;
+                }
+
+                if (IsKeyPressed(KEY_J)) {
+                  x_zoom /= 1.2;
+                }
+                if (IsKeyPressed(KEY_L)) {
+                  x_zoom *= 1.2;
+                }
+
+                if (IsKeyPressed(KEY_U)) {
+                  x_zoom /= 1.2;
+                  y_zoom /= 1.2;
+                }
+                if (IsKeyPressed(KEY_H)) {
+                  x_zoom *= 1.2;
+                  y_zoom *= 1.2;
+                }
             } else {
                 if (time < max_render_length) {
                     BeginTextureMode(screen);
