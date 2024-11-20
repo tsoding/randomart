@@ -12,6 +12,14 @@
 #define ARENA_IMPLEMENTATION
 #include "arena.h"
 #include "ffmpeg.h"
+
+#ifndef static_assert
+#define static_assert _Static_assert
+#endif
+
+#define WIDTH 1600
+#define HEIGHT 900
+#define FPS 60
 #define ALEXER_IMPLEMENTATION
 #include "alexer.h"
 

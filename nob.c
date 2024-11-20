@@ -21,6 +21,8 @@
     cmd_append(cmd, "-L./raylib/raylib-5.0_linux_amd64/lib/", "-l:libraylib.a")
 #define builder_libs(cmd) \
     cmd_append(cmd, "-lm")
+#define builder_mingw(cmd) \
+    cmd_append(cmd, "-D__USE_MINGW_ANSI_STDIO")
 
 int main(int argc, char **argv)
 {
@@ -29,6 +31,7 @@ int main(int argc, char **argv)
     Cmd cmd = {0};
     const char *program_name = shift(argv, argc);
 
+    cmd_append(&cmd, "cc", "-Wall", "-Wextra", "-Wswitch-enum", "-ggdb", "-o", "randomart", "randomart.c", "-lm");
     if (!mkdir_if_not_exists(BUILD_FOLDER)) return 1;
 
     builder_cc(&cmd);
@@ -38,6 +41,10 @@ int main(int argc, char **argv)
     builder_output(&cmd, BUILD_FOLDER"randomart");
     builder_raylib_lib(&cmd);
     builder_libs(&cmd);
+#ifdef __MINGW32__
+    builder_mingw(&cmd)
+#endif
+
     if (!cmd_run_sync_and_reset(&cmd)) return 1;
 
     if (argc > 0) {
