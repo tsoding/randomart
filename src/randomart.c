@@ -20,6 +20,8 @@
 #define WIDTH 1600
 #define HEIGHT 900
 #define FPS 60
+#define ALEXER_IMPLEMENTATION
+#include "alexer.h"
 
 static Arena static_arena = {0};
 static Arena *context_arena = &static_arena;
@@ -34,6 +36,8 @@ typedef enum {
     NK_NUMBER,
     NK_BOOLEAN,
     NK_SQRT,
+    NK_ABS,
+    NK_SIN,
     NK_ADD,
     NK_MULT,
     NK_MOD,
@@ -44,7 +48,7 @@ typedef enum {
     COUNT_NK,
 } Node_Kind;
 
-static_assert(COUNT_NK == 14, "Amount of nodes have changed");
+static_assert(COUNT_NK == 16, "Amount of nodes have changed");
 const char *nk_names[COUNT_NK] = {
     [NK_X]       = "x",
     [NK_Y]       = "y",
@@ -53,6 +57,8 @@ const char *nk_names[COUNT_NK] = {
     [NK_RANDOM]  = "random",
     [NK_NUMBER]  = "number",
     [NK_SQRT]    = "sqrt",
+    [NK_SIN]    = "sin",
+    [NK_ABS]     = "abs",
     [NK_ADD]     = "add",
     [NK_MULT]    = "mult",
     [NK_MOD]     = "mod",
@@ -88,7 +94,7 @@ typedef union {
     Node *unop;
     Node_Triple triple;
     Node_If iff;
-    int rule;
+    Alexer_Token rule;
 } Node_As;
 
 struct Node {
@@ -130,7 +136,7 @@ Node *node_number_loc(const char *file, int line, float number)
 }
 #define node_number(number) node_number_loc(__FILE__, __LINE__, number)
 
-Node *node_rule_loc(const char *file, int line, int rule)
+Node *node_rule_loc(const char *file, int line, Alexer_Token rule)
 {
     Node *node = node_loc(file, line, NK_RULE);
     node->as.rule = rule;
@@ -246,8 +252,18 @@ void node_print(Node *node)
         node_print(node->as.unop);
         printf(")");
         break;
+    case NK_SIN:
+        printf("sin(");
+        node_print(node->as.unop);
+        printf(")");
+        break;
+    case NK_ABS:
+        printf("abs(");
+        node_print(node->as.unop);
+        printf(")");
+        break;
     case NK_RULE:
-        printf("rule(%d)", node->as.rule);
+        printf("rule("Alexer_Token_Fmt")", Alexer_Token_Arg(node->as.rule));
         break;
     case NK_RANDOM:
         printf("random");
@@ -315,6 +331,18 @@ Node *eval(Node *expr, float x, float y, float t)
         if (!rhs) return NULL;
         if (!expect_number(rhs)) return NULL;
         return node_number_loc(expr->file, expr->line, sqrtf(rhs->as.number));
+    }
+    case NK_SIN: {
+        Node *rhs = eval(expr->as.unop, x, y, t);
+        if (!rhs) return NULL;
+        if (!expect_number(rhs)) return NULL;
+        return node_number_loc(expr->file, expr->line, sinf(rhs->as.number));
+    }
+    case NK_ABS: {
+        Node *rhs = eval(expr->as.unop, x, y, t);
+        if (!rhs) return NULL;
+        if (!expect_number(rhs)) return NULL;
+        return node_number_loc(expr->file, expr->line, fabsf(rhs->as.number));
     }
     case NK_ADD: {
         Node *lhs = eval(expr->as.binop.lhs, x, y, t);
@@ -390,24 +418,31 @@ bool eval_func(Node *f, float x, float y, float t, Vector3 *c)
     return true;
 }
 
-bool render_pixels(Image image, Node *f)
+float clamp_float(float v, float lo, float hi)
+{
+    if (v < lo) return lo;
+    if (v > hi) return hi;
+    return v;
+}
+
+bool render_image(Image image, Node *f)
 {
     Color *pixels = image.data;
     bool result = true;
     Arena temp_arena = {0};
     Arena *saved_arena = context_arena;
     context_arena = &temp_arena;
-    for (size_t y = 0; y < HEIGHT; ++y) {
-        float ny = (float)y/HEIGHT*2.0f - 1;
-        for (size_t x = 0; x < WIDTH; ++x) {
-            float nx = (float)x/WIDTH*2.0f - 1;
+    for (int y = 0; y < image.height; ++y) {
+        float ny = (float)y/image.height*2.0f - 1;
+        for (int x = 0; x < image.width; ++x) {
+            float nx = (float)x/image.width*2.0f - 1;
             Vector3 c;
             if (!eval_func(f, nx, ny, 0.0, &c)) return_defer(false);
             arena_reset(&temp_arena);
-            size_t index = y*WIDTH + x;
-            pixels[index].r = (c.x + 1)/2*255;
-            pixels[index].g = (c.y + 1)/2*255;
-            pixels[index].b = (c.z + 1)/2*255;
+            size_t index = y*image.width + x;
+            pixels[index].r = clamp_float((c.x + 1)/2*255, 0, 255);
+            pixels[index].g = clamp_float((c.y + 1)/2*255, 0, 255);
+            pixels[index].b = clamp_float((c.z + 1)/2*255, 0, 255);
             pixels[index].a = 255;
         }
     }
@@ -421,13 +456,15 @@ defer:
 
 typedef struct {
     Node *node;
-    float probability;
+    size_t weight;
 } Grammar_Branch;
 
 typedef struct {
     Grammar_Branch *items;
     size_t capacity;
     size_t count;
+    size_t weight_sum;
+    Alexer_Token name;
 } Grammar_Branches;
 
 typedef struct {
@@ -439,18 +476,19 @@ typedef struct {
 void grammar_print(Grammar grammar)
 {
     for (size_t i = 0; i < grammar.count; ++i) {
-        printf("%zu ::= ", i);
         Grammar_Branches *branches = &grammar.items[i];
+        printf(Alexer_Token_Fmt"\n", Alexer_Token_Arg(branches->name));
         for (size_t j = 0; j < branches->count; ++j) {
-            if (j > 0) printf(" | ");
-            node_print(branches->items[j].node);
-            printf(" [%.02f]", branches->items[j].probability);
+            Grammar_Branch *branch = &branches->items[j];
+            printf("  ");
+            for (size_t k = 0; k < branch->weight; ++k) printf("|");
+            node_print_ln(branch->node);
         }
-        printf("\n");
+        printf("  ;\n");
     }
 }
 
-Node *gen_rule(Grammar grammar, size_t rule, int depth);
+Node *gen_rule(Grammar grammar, Alexer_Token rule, int depth);
 
 float rand_float(void)
 {
@@ -468,6 +506,16 @@ Node *gen_node(Grammar grammar, Node *node, int depth)
         return node;
 
     case NK_SQRT: {
+        Node *rhs = gen_node(grammar, node->as.unop, depth);
+        if (!rhs) return NULL;
+        return node_unop_loc(node->file, node->line, node->kind, rhs);
+    }
+    case NK_SIN: {
+        Node *rhs = gen_node(grammar, node->as.unop, depth);
+        if (!rhs) return NULL;
+        return node_unop_loc(node->file, node->line, node->kind, rhs);
+    }
+    case NK_ABS: {
         Node *rhs = gen_node(grammar, node->as.unop, depth);
         if (!rhs) return NULL;
         return node_unop_loc(node->file, node->line, node->kind, rhs);
@@ -517,13 +565,23 @@ Node *gen_node(Grammar grammar, Node *node, int depth)
 
 #define GEN_RULE_MAX_ATTEMPTS 100
 
-Node *gen_rule(Grammar grammar, size_t rule, int depth)
+Grammar_Branches *branches_by_name(Grammar *grammar, Alexer_Token rule)
+{
+    for (size_t i = 0; i < grammar->count; ++i) {
+        if (alexer_token_text_equal(grammar->items[i].name, rule)) {
+            return &grammar->items[i];
+        }
+    }
+    alexer_default_diagf(rule.loc, "ERROR", "Rule "Alexer_Token_Fmt" does not exist", Alexer_Token_Arg(rule));
+    return NULL;
+}
+
+Node *gen_rule(Grammar grammar, Alexer_Token rule, int depth)
 {
     if (depth <= 0) return NULL;
 
-    assert(rule < grammar.count);
-
-    Grammar_Branches *branches = &grammar.items[rule];
+    Grammar_Branches *branches = branches_by_name(&grammar, rule);
+    if (branches == NULL) return NULL;
     assert(branches->count > 0);
 
     Node *node = NULL;
@@ -532,7 +590,7 @@ Node *gen_rule(Grammar grammar, size_t rule, int depth)
         float p = rand_float();
         float t = 0.0f;
         for (size_t i = 0; i < branches->count; ++i) {
-            t += branches->items[i].probability;
+            t += (float)branches->items[i].weight/branches->weight_sum;
             if (t >= p) {
                 node = gen_node(grammar, branches->items[i].node, depth - 1);
                 break;
@@ -542,32 +600,59 @@ Node *gen_rule(Grammar grammar, size_t rule, int depth)
     return node;
 }
 
+void grammar_append_branches(Grammar *grammar, Grammar_Branches *branches, Alexer_Token name)
+{
+    branches->name = name;
+    branches->weight_sum = 0;
+    for (size_t i = 0; i < branches->count; ++i) {
+        branches->weight_sum += branches->items[i].weight;
+    }
+    context_da_append(grammar, *branches);
+    memset(branches, 0, sizeof(*branches));
+}
+
+#define SYMBOL(name_cstr) symbol_impl(__FILE__, __LINE__, name_cstr)
+
+Alexer_Token symbol_impl(const char *file, int line, const char *name_cstr)
+{
+    return (Alexer_Token) {
+        .kind = ALEXER_SYMBOL,
+        .loc = {
+            .file_path = file,
+            .row = line,
+            .col = 0,
+        },
+        .begin = name_cstr,
+        .end = name_cstr + strlen(name_cstr),
+    };
+}
+
 // TODO: load grammar from file
-int default_grammar(Grammar *grammar)
+Alexer_Token default_grammar(Grammar *grammar)
 {
     Grammar_Branches branches = {0};
-    int e = 0;
-    int a = 1;
-    int c = 2;
 
     context_da_append(&branches, ((Grammar_Branch) {
-        .node = node_triple(node_rule(c), node_rule(c), node_rule(c)),
-        .probability = 1.0f
+        .node = node_triple(node_rule(SYMBOL("c")), node_rule(SYMBOL("c")), node_rule(SYMBOL("c"))),
+        .weight = 1,
     }));
-    context_da_append(grammar, branches);
-    memset(&branches, 0, sizeof(branches));
+    grammar_append_branches(grammar, &branches, SYMBOL("e"));
 
     context_da_append(&branches, ((Grammar_Branch) {
         .node = node_random(),
+        .weight = 1,
     }));
     context_da_append(&branches, ((Grammar_Branch) {
         .node = node_x(),
+        .weight = 1,
     }));
     context_da_append(&branches, ((Grammar_Branch) {
         .node = node_y(),
+        .weight = 1,
     }));
     context_da_append(&branches, ((Grammar_Branch) {
         .node = node_t(),
+        .weight = 1,
     }));
     context_da_append(&branches, ((Grammar_Branch) {
         .node = node_sqrt(
@@ -575,32 +660,24 @@ int default_grammar(Grammar *grammar)
             node_add(node_mult(node_x(), node_x()),
                      node_mult(node_y(), node_y())),
                      node_mult(node_t(), node_t()))),
+        .weight = 1,
     }));
-    for (size_t i = 0; i < branches.count; ++i) {
-        branches.items[i].probability = 1.0/branches.count;
-    }
-
-    context_da_append(grammar, branches);
-    memset(&branches, 0, sizeof(branches));
+    grammar_append_branches(grammar, &branches, SYMBOL("a"));
 
     context_da_append(&branches, ((Grammar_Branch) {
-        .node = node_rule(a),
-        .probability = 1.f/4.f,
-        // .probability = 1.f/2.f,
+        .node = node_rule(SYMBOL("a")),
+        .weight = 2,
     }));
     context_da_append(&branches, ((Grammar_Branch) {
-        .node = node_add(node_rule(c), node_rule(c)),
-        .probability = 3.f/8.f,
-        // .probability = 1.f/4.f,
+        .node = node_add(node_rule(SYMBOL("c")), node_rule(SYMBOL("c"))),
+        .weight = 3,
     }));
     context_da_append(&branches, ((Grammar_Branch) {
-        .node = node_mult(node_rule(c), node_rule(c)),
-        .probability = 3.f/8.f,
-        // .probability = 1.f/4.f,
+        .node = node_mult(node_rule(SYMBOL("c")), node_rule(SYMBOL("c"))),
+        .weight = 3,
     }));
-    context_da_append(grammar, branches);
-    memset(&branches, 0, sizeof(branches));
-    return e;
+    grammar_append_branches(grammar, &branches, SYMBOL("c"));
+    return SYMBOL("e");
 }
 
 bool compile_node_into_fragment_expression(String_Builder *sb, Node *expr, size_t level)
@@ -627,6 +704,17 @@ bool compile_node_into_fragment_expression(String_Builder *sb, Node *expr, size_
 
     case NK_SQRT:
         sb_append_cstr(sb, "sqrt(");
+        if (!compile_node_into_fragment_expression(sb, expr->as.unop, level + 1)) return false;
+        sb_append_cstr(sb, ")");
+        break;
+    case NK_SIN:
+        sb_append_cstr(sb, "sin(");
+        if (!compile_node_into_fragment_expression(sb, expr->as.unop, level + 1)) return false;
+        sb_append_cstr(sb, ")");
+        break;
+
+    case NK_ABS:
+        sb_append_cstr(sb, "abs(");
         if (!compile_node_into_fragment_expression(sb, expr->as.unop, level + 1)) return false;
         sb_append_cstr(sb, ")");
         break;
@@ -710,22 +798,231 @@ bool compile_node_func_into_fragment_shader(String_Builder *sb, Node *f)
     return true;
 }
 
+bool flag_int(int *argc, char ***argv, int *value)
+{
+    const char *flag = shift(*argv, *argc);
+    if ((*argc) <= 0) {
+        nob_log(ERROR, "No argument is provided for %s", flag);
+        return false;
+    }
+    *value = atoi(shift(*argv, *argc));
+    return true;
+}
+
+typedef enum {
+    PUNCT_BAR,
+    PUNCT_OPAREN,
+    PUNCT_CPAREN,
+    PUNCT_COMMA,
+    PUNCT_SEMICOLON,
+    COUNT_PUNCTS,
+} Punct_Index;
+
+const char *puncts[COUNT_PUNCTS] = {
+    [PUNCT_BAR]       = "|",
+    [PUNCT_OPAREN]    = "(",
+    [PUNCT_CPAREN]    = ")",
+    [PUNCT_COMMA]     = ",",
+    [PUNCT_SEMICOLON] = ";",
+};
+
+const char *comments[] = {
+    "#",
+};
+
+bool parse_node(Alexer *l, Node **node);
+
+bool parse_pair(Alexer *l, Node **first, Node **second)
+{
+    Alexer_Token t = {0};
+    alexer_get_token(l, &t);
+    if (!alexer_expect_punct(l, t, PUNCT_OPAREN)) return false;
+
+    if (!parse_node(l, first)) return false;
+
+    alexer_get_token(l, &t);
+    if (!alexer_expect_punct(l, t, PUNCT_COMMA)) return false;
+
+    if (!parse_node(l, second)) return false;
+
+    alexer_get_token(l, &t);
+    if (!alexer_expect_punct(l, t, PUNCT_CPAREN)) return false;
+
+    return true;
+}
+
+bool parse_triple(Alexer *l, Node **first, Node **second, Node **third)
+{
+    Alexer_Token t = {0};
+    alexer_get_token(l, &t);
+    if (!alexer_expect_punct(l, t, PUNCT_OPAREN)) return false;
+
+    if (!parse_node(l, first)) return false;
+
+    alexer_get_token(l, &t);
+    if (!alexer_expect_punct(l, t, PUNCT_COMMA)) return false;
+
+    if (!parse_node(l, second)) return false;
+
+    alexer_get_token(l, &t);
+    if (!alexer_expect_punct(l, t, PUNCT_COMMA)) return false;
+
+    if (!parse_node(l, third)) return false;
+
+    alexer_get_token(l, &t);
+    if (!alexer_expect_punct(l, t, PUNCT_CPAREN)) return false;
+
+    return true;
+}
+
+bool parse_node(Alexer *l, Node **node)
+{
+    Alexer_Token t = {0};
+    alexer_get_token(l, &t);
+    if (!alexer_expect_kind(l, t, ALEXER_SYMBOL)) return false;
+    if (alexer_token_text_equal_cstr(t, "random")) {
+        *node = node_loc(t.loc.file_path, t.loc.row, NK_RANDOM);
+    } else if (alexer_token_text_equal_cstr(t, "x")) {
+        *node = node_loc(t.loc.file_path, t.loc.row, NK_X);
+    } else if (alexer_token_text_equal_cstr(t, "y")) {
+        *node = node_loc(t.loc.file_path, t.loc.row, NK_Y);
+    } else if (alexer_token_text_equal_cstr(t, "t")) {
+        *node = node_loc(t.loc.file_path, t.loc.row, NK_T);
+    } else if (alexer_token_text_equal_cstr(t, "sqrt")) {
+        alexer_get_token(l, &t);
+        if (!alexer_expect_punct(l, t, PUNCT_OPAREN)) return false;
+
+        Node *unop;
+        if (!parse_node(l, &unop)) return false;
+        *node = node_unop_loc(t.loc.file_path, t.loc.row, NK_SQRT, unop);
+
+        alexer_get_token(l, &t);
+        if (!alexer_expect_punct(l, t, PUNCT_CPAREN)) return false;
+    } else if (alexer_token_text_equal_cstr(t, "sin")) {
+        alexer_get_token(l, &t);
+        if (!alexer_expect_punct(l, t, PUNCT_OPAREN)) return false;
+
+        Node *unop;
+        if (!parse_node(l, &unop)) return false;
+        *node = node_unop_loc(t.loc.file_path, t.loc.row, NK_SIN, unop);
+
+        alexer_get_token(l, &t);
+        if (!alexer_expect_punct(l, t, PUNCT_CPAREN)) return false;
+    } else if (alexer_token_text_equal_cstr(t, "abs")) {
+        alexer_get_token(l, &t);
+        if (!alexer_expect_punct(l, t, PUNCT_OPAREN)) return false;
+
+        Node *unop;
+        if (!parse_node(l, &unop)) return false;
+        *node = node_unop_loc(t.loc.file_path, t.loc.row, NK_ABS, unop);
+
+        alexer_get_token(l, &t);
+        if (!alexer_expect_punct(l, t, PUNCT_CPAREN)) return false;
+    } else if (alexer_token_text_equal_cstr(t, "add")) {
+        Node *lhs, *rhs;
+        if (!parse_pair(l, &lhs, &rhs)) return false;
+        *node = node_binop_loc(t.loc.file_path, t.loc.row, NK_ADD, lhs, rhs);
+    } else if (alexer_token_text_equal_cstr(t, "mult")) {
+        Node *lhs, *rhs;
+        if (!parse_pair(l, &lhs, &rhs)) return false;
+        *node = node_binop_loc(t.loc.file_path, t.loc.row, NK_MULT, lhs, rhs);
+    } else if (alexer_token_text_equal_cstr(t, "vec3")) {
+        Node *first, *second, *third;
+        if (!parse_triple(l, &first, &second, &third)) return false;
+        *node = node_triple_loc(t.loc.file_path, t.loc.row, first, second, third);
+    } else {
+        *node = node_rule(t);
+    }
+    return true;
+}
+
+bool parse_grammar_branch(Alexer *l, Grammar_Branch *branch)
+{
+    Alexer_Token t = {0};
+    Alexer_State s = alexer_save(l);
+    alexer_get_token(l, &t);
+    while (t.kind == ALEXER_PUNCT && t.punct_index == PUNCT_BAR) {
+        branch->weight += 1;
+        s = alexer_save(l);
+        alexer_get_token(l, &t);
+    }
+    alexer_rewind(l, s);
+
+    if (!parse_node(l, &branch->node)) return false;
+    return true;
+}
+
+bool parse_grammar_branches(Alexer *l, Alexer_Token name, Grammar_Branches *branches)
+{
+    Alexer_Token t = {0};
+    branches->name = name;
+    size_t branch_start[] = {PUNCT_BAR, PUNCT_SEMICOLON};
+    bool quit = false;
+    while (!quit) {
+        Alexer_State s = alexer_save(l);
+        alexer_get_token(l, &t);
+        if (!alexer_expect_one_of_puncts(l, t, branch_start, ARRAY_LEN(branch_start))) return false;
+        switch (t.punct_index) {
+        case PUNCT_BAR: {
+            alexer_rewind(l, s);
+            Grammar_Branch branch = {};
+            if (!parse_grammar_branch(l, &branch)) return false;
+            context_da_append(branches, branch);
+        } break;
+        case PUNCT_SEMICOLON: quit = true; break;
+        default: UNREACHABLE("parse_grammar_branches");
+        }
+    }
+    branches->weight_sum = 0;
+    for (size_t i = 0; i < branches->count; ++i) {
+        branches->weight_sum += branches->items[i].weight;
+    }
+    return true;
+}
+
+bool parse_grammar(Alexer *l, Grammar *grammar)
+{
+    Alexer_Token t = {0};
+    Alexer_Kind top_level_start[] = { ALEXER_SYMBOL, ALEXER_END };
+    bool quit = false;
+    while (!quit) {
+        alexer_get_token(l, &t);
+        if (!alexer_expect_one_of_kinds(l, t, top_level_start, ARRAY_LEN(top_level_start))) return false;
+        switch (t.kind) {
+        case ALEXER_SYMBOL: {
+            Grammar_Branches branches = {0};
+            if (!parse_grammar_branches(l, t, &branches)) return false;
+            context_da_append(grammar, branches);
+        } break;
+        case ALEXER_END: quit = true; break;
+        default: UNREACHABLE("top_level");
+        }
+    }
+    return true;
+}
+
 int main(int argc, char **argv)
 {
     const char *program_name = shift(argv, argc);
 
-    int depth = 40;
+    int depth = 30;
     int seed = time(0);
+    int width = 16*100;
+    int height = 9*100;
+    int fps = 60;
 
     while (argc > 0) {
         const char *flag = argv[0];
         if (strcmp(flag, "-seed") == 0) {
-            UNUSED(shift(argv, argc));
-            if (argc <= 0) {
-                nob_log(ERROR, "No argument is provided for %s", flag);
-                return 1;
-            }
-            seed = atoi(shift(argv, argc));
+            if (!flag_int(&argc, &argv, &seed)) return 1;
+        } else if (strcmp(flag, "-depth") == 0) {
+            if (!flag_int(&argc, &argv, &depth)) return 1;
+        } else if (strcmp(flag, "-width") == 0) {
+            if (!flag_int(&argc, &argv, &width)) return 1;
+        } else if (strcmp(flag, "-height") == 0) {
+            if (!flag_int(&argc, &argv, &height)) return 1;
+        } else if (strcmp(flag, "-fps") == 0) {
+            if (!flag_int(&argc, &argv, &fps)) return 1;
         } else {
             break;
         }
@@ -754,11 +1051,13 @@ int main(int argc, char **argv)
         }
 
         Grammar grammar = {0};
-        int entry = default_grammar(&grammar);
+        Alexer_Token entry = default_grammar(&grammar);
 
         srand(seed);
         nob_log(INFO, "SEED: %d", seed);
         nob_log(INFO, "DEPTH: %d", depth);
+        nob_log(INFO, "WIDTH: %d", width);
+        nob_log(INFO, "HEIGHT: %d", height);
 
         Node *f = gen_rule(grammar, entry, depth);
         if (!f) {
@@ -766,25 +1065,43 @@ int main(int argc, char **argv)
             return 1;
         }
 
-        Image image = GenImageColor(WIDTH, HEIGHT, BLANK);
-        if (!render_pixels(image, f)) return 1;
+        Image image = GenImageColor(width, height, BLANK);
+        nob_log(INFO, "Generating image...");
+        if (!render_image(image, f)) return 1;
         if (!ExportImage(image, output_path)) return 1;
 
         return 0;
     }
 
     if (strcmp(command_name, "gui") == 0) {
-        if (argc > 0) {
-            nob_log(ERROR, "%s does not accept any arguments", command_name);
+        if (argc <= 0) {
+            nob_log(ERROR, "Usage: %s %s <input>", program_name, command_name);
+            nob_log(ERROR, "no input is provided");
             return 1;
         }
 
+        const char *input_path = shift(argv, argc);
+
+        String_Builder src = {0};
+        if (!read_entire_file(input_path, &src)) return 1;
+
+        Alexer l = alexer_create(input_path, src.items, src.count);
+        l.puncts = puncts;
+        l.puncts_count = COUNT_PUNCTS;
+        l.sl_comments = comments;
+        l.sl_comments_count = ARRAY_LEN(comments);
         Grammar grammar = {0};
-        int entry = default_grammar(&grammar);
+        if (!parse_grammar(&l, &grammar)) return 1;
+
+        assert(grammar.count > 0);
+        Alexer_Token entry = grammar.items[0].name;
 
         srand(seed);
         nob_log(INFO, "SEED: %d", seed);
         nob_log(INFO, "DEPTH: %d", depth);
+        nob_log(INFO, "WIDTH: %d", width);
+        nob_log(INFO, "HEIGHT: %d", height);
+        nob_log(INFO, "FPS: %d", fps);
 
         Node *f = gen_rule(grammar, entry, depth);
         if (!f) {
@@ -798,11 +1115,11 @@ int main(int argc, char **argv)
 
         FFMPEG *ffmpeg = NULL;
 
-        InitWindow(WIDTH, HEIGHT, "RandomArt");
-        RenderTexture2D screen = LoadRenderTexture(WIDTH, HEIGHT);
+        InitWindow(width, height, "RandomArt");
+        RenderTexture2D screen = LoadRenderTexture(width, height);
         Shader shader = LoadShaderFromMemory(NULL, sb.items);
         int time_loc = GetShaderLocation(shader, "time");
-        SetTargetFPS(FPS);
+        SetTargetFPS(fps);
         SetExitKey(KEY_NULL);
         Texture default_texture = {
             .id = rlGetTextureIdDefault(),
@@ -812,7 +1129,7 @@ int main(int argc, char **argv)
             .format = PIXELFORMAT_UNCOMPRESSED_R8G8B8A8,
         };
         float time = 0.0f;
-        float max_render_length = (2*PI)*4;
+        float max_render_length = (2*PI)*2;
         bool pause = false;
         while (!WindowShouldClose()) {
             float w = GetScreenWidth();
@@ -831,7 +1148,7 @@ int main(int argc, char **argv)
                 if (!pause) time += dt;
 
                 if (IsKeyPressed(KEY_R)) {
-                    ffmpeg = ffmpeg_start_rendering(WIDTH, HEIGHT, FPS);
+                    ffmpeg = ffmpeg_start_rendering(width, height, fps);
                     time = 0;
                     SetTraceLogLevel(LOG_WARNING);
                 }
@@ -877,10 +1194,10 @@ int main(int argc, char **argv)
                     }
 
                     Image image = LoadImageFromTexture(screen.texture);
-                    ffmpeg_send_frame_flipped(ffmpeg, image.data, WIDTH, HEIGHT);
+                    ffmpeg_send_frame_flipped(ffmpeg, image.data, width, height);
                     UnloadImage(image);
 
-                    time += 1.0f/FPS;
+                    time += 1.0f/fps;
 
                     if (IsKeyPressed(KEY_ESCAPE)) {
                         time = 0;
@@ -899,6 +1216,9 @@ int main(int argc, char **argv)
         }
         CloseWindow();
         return 0;
+    }
+
+    if (strcmp(command_name, "parse") == 0) {
     }
 
     nob_log(ERROR, "Unknown command %s", command_name);
