@@ -30,6 +30,8 @@ typedef enum {
     NK_SQRT,
     NK_ABS,
     NK_SIN,
+    NK_COS,
+    NK_POW,
     NK_ADD,
     NK_MULT,
     NK_MOD,
@@ -40,7 +42,7 @@ typedef enum {
     COUNT_NK,
 } Node_Kind;
 
-static_assert(COUNT_NK == 16, "Amount of nodes have changed");
+static_assert(COUNT_NK == 18, "Amount of nodes have changed");
 const char *nk_names[COUNT_NK] = {
     [NK_X]       = "x",
     [NK_Y]       = "y",
@@ -49,8 +51,10 @@ const char *nk_names[COUNT_NK] = {
     [NK_RANDOM]  = "random",
     [NK_NUMBER]  = "number",
     [NK_SQRT]    = "sqrt",
-    [NK_SIN]    = "sin",
+    [NK_SIN]     = "sin",
+    [NK_COS]     = "cos",
     [NK_ABS]     = "abs",
+    [NK_POW]     = "pow",
     [NK_ADD]     = "add",
     [NK_MULT]    = "mult",
     [NK_MOD]     = "mod",
@@ -191,6 +195,13 @@ void node_print(Node *node)
     case NK_NUMBER:
         printf("%f", node->as.number);
         break;
+    case NK_POW:
+        printf("pow(");
+        node_print(node->as.binop.lhs);
+        printf(", ");
+        node_print(node->as.binop.rhs);
+        printf(")");
+        break;
     case NK_ADD:
         printf("add(");
         node_print(node->as.binop.lhs);
@@ -246,6 +257,11 @@ void node_print(Node *node)
         break;
     case NK_SIN:
         printf("sin(");
+        node_print(node->as.unop);
+        printf(")");
+        break;
+    case NK_COS:
+        printf("cos(");
         node_print(node->as.unop);
         printf(")");
         break;
@@ -324,6 +340,12 @@ Node *eval(Node *expr, float x, float y, float t)
         if (!expect_number(rhs)) return NULL;
         return node_number_loc(expr->file, expr->line, sqrtf(rhs->as.number));
     }
+    case NK_COS: {
+        Node *rhs = eval(expr->as.unop, x, y, t);
+        if (!rhs) return NULL;
+        if (!expect_number(rhs)) return NULL;
+        return node_number_loc(expr->file, expr->line, cosf(rhs->as.number));
+    }
     case NK_SIN: {
         Node *rhs = eval(expr->as.unop, x, y, t);
         if (!rhs) return NULL;
@@ -335,6 +357,15 @@ Node *eval(Node *expr, float x, float y, float t)
         if (!rhs) return NULL;
         if (!expect_number(rhs)) return NULL;
         return node_number_loc(expr->file, expr->line, fabsf(rhs->as.number));
+    }
+    case NK_POW: {
+        Node *lhs = eval(expr->as.binop.lhs, x, y, t);
+        if (!lhs) return NULL;
+        if (!expect_number(lhs)) return NULL;
+        Node *rhs = eval(expr->as.binop.rhs, x, y, t);
+        if (!rhs) return NULL;
+        if (!expect_number(rhs)) return NULL;
+        return node_number_loc(expr->file, expr->line, powf(lhs->as.number, rhs->as.number));
     }
     case NK_ADD: {
         Node *lhs = eval(expr->as.binop.lhs, x, y, t);
@@ -502,6 +533,11 @@ Node *gen_node(Grammar grammar, Node *node, int depth)
         if (!rhs) return NULL;
         return node_unop_loc(node->file, node->line, node->kind, rhs);
     }
+    case NK_COS: {
+        Node *rhs = gen_node(grammar, node->as.unop, depth);
+        if (!rhs) return NULL;
+        return node_unop_loc(node->file, node->line, node->kind, rhs);
+    }
     case NK_SIN: {
         Node *rhs = gen_node(grammar, node->as.unop, depth);
         if (!rhs) return NULL;
@@ -513,6 +549,7 @@ Node *gen_node(Grammar grammar, Node *node, int depth)
         return node_unop_loc(node->file, node->line, node->kind, rhs);
     }
 
+    case NK_POW:
     case NK_ADD:
     case NK_MULT:
     case NK_MOD:
@@ -699,6 +736,11 @@ bool compile_node_into_fragment_expression(String_Builder *sb, Node *expr, size_
         if (!compile_node_into_fragment_expression(sb, expr->as.unop, level + 1)) return false;
         sb_append_cstr(sb, ")");
         break;
+    case NK_COS:
+        sb_append_cstr(sb, "cos(");
+        if (!compile_node_into_fragment_expression(sb, expr->as.unop, level + 1)) return false;
+        sb_append_cstr(sb, ")");
+        break;
     case NK_SIN:
         sb_append_cstr(sb, "sin(");
         if (!compile_node_into_fragment_expression(sb, expr->as.unop, level + 1)) return false;
@@ -708,6 +750,14 @@ bool compile_node_into_fragment_expression(String_Builder *sb, Node *expr, size_
     case NK_ABS:
         sb_append_cstr(sb, "abs(");
         if (!compile_node_into_fragment_expression(sb, expr->as.unop, level + 1)) return false;
+        sb_append_cstr(sb, ")");
+        break;
+
+    case NK_POW:
+        sb_append_cstr(sb, "pow(");
+        if (!compile_node_into_fragment_expression(sb, expr->as.binop.lhs, level + 1)) return false;
+        sb_append_cstr(sb, ",");
+        if (!compile_node_into_fragment_expression(sb, expr->as.binop.rhs, level + 1)) return false;
         sb_append_cstr(sb, ")");
         break;
 
@@ -782,7 +832,7 @@ bool compile_node_func_into_fragment_shader(String_Builder *sb, Node *f)
     sb_append_cstr(sb, "{\n");
     sb_append_cstr(sb, "    float x = fragTexCoord.x*2.0 - 1.0;\n");
     sb_append_cstr(sb, "    float y = fragTexCoord.y*2.0 - 1.0;\n");
-    sb_append_cstr(sb, "    float t = sin(time);\n");
+    sb_append_cstr(sb, "    float t = time;\n");
     sb_append_cstr(sb, "    finalColor = map_color(");
     if (!compile_node_into_fragment_expression(sb, f, 0)) return false;
     sb_append_cstr(sb, ");\n");
@@ -871,8 +921,17 @@ bool parse_node(Alexer *l, Node **node)
 {
     Alexer_Token t = {0};
     alexer_get_token(l, &t);
-    if (!alexer_expect_id(l, t, ALEXER_SYMBOL)) return false;
-    if (alexer_token_text_equal_cstr(t, "random")) {
+    uint64_t ids[] = {
+        ALEXER_ID(ALEXER_INT, 0),
+        ALEXER_ID(ALEXER_SYMBOL, 0),
+    };
+    if (!alexer_expect_one_of_ids(l, t, ids, ARRAY_LEN(ids))) {
+        return false;
+    }
+    else if (ALEXER_KIND(t.id) == ALEXER_INT) {
+        *node = node_number_loc(t.loc.file_path, t.loc.row, t.int_value);
+    }
+    else if (alexer_token_text_equal_cstr(t, "random")) {
         *node = node_loc(t.loc.file_path, t.loc.row, NK_RANDOM);
     } else if (alexer_token_text_equal_cstr(t, "x")) {
         *node = node_loc(t.loc.file_path, t.loc.row, NK_X);
@@ -887,6 +946,16 @@ bool parse_node(Alexer *l, Node **node)
         Node *unop;
         if (!parse_node(l, &unop)) return false;
         *node = node_unop_loc(t.loc.file_path, t.loc.row, NK_SQRT, unop);
+
+        alexer_get_token(l, &t);
+        if (!alexer_expect_id(l, t, ALEXER_ID(ALEXER_PUNCT, PUNCT_CPAREN))) return false;
+    } else if (alexer_token_text_equal_cstr(t, "cos")) {
+        alexer_get_token(l, &t);
+        if (!alexer_expect_id(l, t, ALEXER_ID(ALEXER_PUNCT, PUNCT_OPAREN))) return false;
+
+        Node *unop;
+        if (!parse_node(l, &unop)) return false;
+        *node = node_unop_loc(t.loc.file_path, t.loc.row, NK_COS, unop);
 
         alexer_get_token(l, &t);
         if (!alexer_expect_id(l, t, ALEXER_ID(ALEXER_PUNCT, PUNCT_CPAREN))) return false;
@@ -910,6 +979,10 @@ bool parse_node(Alexer *l, Node **node)
 
         alexer_get_token(l, &t);
         if (!alexer_expect_id(l, t, ALEXER_ID(ALEXER_PUNCT, PUNCT_CPAREN))) return false;
+    } else if (alexer_token_text_equal_cstr(t, "pow")) {
+        Node *lhs, *rhs;
+        if (!parse_pair(l, &lhs, &rhs)) return false;
+        *node = node_binop_loc(t.loc.file_path, t.loc.row, NK_POW, lhs, rhs);
     } else if (alexer_token_text_equal_cstr(t, "add")) {
         Node *lhs, *rhs;
         if (!parse_pair(l, &lhs, &rhs)) return false;
@@ -1002,8 +1075,8 @@ int main(int argc, char **argv)
 
     int depth = 30;
     int seed = time(0);
-    int width = 16*100;
-    int height = 9*100;
+    int width = 16*80;
+    int height = 9*80;
     int fps = 60;
 
     while (argc > 0) {

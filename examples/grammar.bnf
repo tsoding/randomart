@@ -1,0 +1,27 @@
+# Entry
+E | vec3(C, C, C)
+  ;
+
+# X, Y and T is biased so we displaced it by a random value
+X | mult(add(x, random), random);
+Y | mult(add(y, random), random);
+T | mult(add(t, random), random);
+ST | sin(T);
+CT | cos(T);
+
+# Terminal
+A || random
+  || x
+  || y
+  ||| X
+  ||| Y
+  ||| CT
+  ||| ST
+;
+
+# Expressions
+C |||| add(C, C)
+  |||| mult(C, C)
+  ||   A
+  | add(mult(A, A), mult(A, A))
+;
