@@ -6,8 +6,8 @@ E | vec3(C, C, C)
 A | random
   | x
   | y
-  | s
-  | t
+  | sin(t)
+  | cos(t)
   | abs(x)
   | abs(y)
   | sqrt(add(mult(x, x), mult(y, y))) # Distance from (0, 0) to (x, y)
