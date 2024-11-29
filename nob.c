@@ -6,6 +6,14 @@
 #define BUILD_FOLDER "build/"
 #define SRC_FOLDER "src/"
 
+#ifdef _WIN32
+#   define RAYLIB_PATH "./raylib/raylib-5.0_win64_mingw-w64/"
+#   define RAYLIB_LIB "raylib.dll"
+#else
+#   define RAYLIB_PATH ".raylib/raylib-5.0_linux_amd/"
+#   define RAYLIB_LIB "libraylib.a"
+#endif
+
 // TODO: redefine for your platform
 #define builder_cc(cmd) \
     cmd_append(cmd, "cc")
@@ -16,9 +24,9 @@
 #define builder_inputs(cmd, ...) \
     cmd_append(cmd, __VA_ARGS__)
 #define builder_raylib_include_path(cmd) \
-    cmd_append(cmd, "-I./raylib/raylib-5.0_linux_amd64/include")
+    cmd_append(cmd, "-I"RAYLIB_PATH"include")
 #define builder_raylib_lib(cmd) \
-    cmd_append(cmd, "-L./raylib/raylib-5.0_linux_amd64/lib/", "-l:libraylib.a")
+    cmd_append(cmd, "-L"RAYLIB_PATH"lib/", "-l:"RAYLIB_LIB)
 #define builder_libs(cmd) \
     cmd_append(cmd, "-lm")
 
@@ -43,6 +51,10 @@ int main(int argc, char **argv)
     builder_raylib_lib(&cmd);
     builder_libs(&cmd);
     if (!cmd_run_sync_and_reset(&cmd)) return 1;
+
+#ifdef _WIN32
+    nob_copy_file("./raylib/raylib-5.0_win64_mingw-w64/lib/raylib.dll", BUILD_FOLDER "raylib.dll");
+#endif
 
     if (argc > 0) {
         const char *command_name = shift(argv, argc);
