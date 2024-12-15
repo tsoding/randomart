@@ -10,7 +10,7 @@
 #   define RAYLIB_PATH "./raylib/raylib-5.0_win64_mingw-w64/"
 #   define RAYLIB_LIB "raylib.dll"
 #else
-#   define RAYLIB_PATH ".raylib/raylib-5.0_linux_amd/"
+#   define RAYLIB_PATH "./raylib/raylib-5.0_linux_amd/"
 #   define RAYLIB_LIB "libraylib.a"
 #endif
 
